@@ -6,7 +6,7 @@
 
 构建包含核心测试、iOS 网络隔离与数据迁移测试，以及模拟器的订阅导入、地区排除和设置记忆测试。尚未在 iOS 27 真机验证。
 
-<img src="docs/screenshot.png" alt="NodeScope 实际运行界面，示例节点未进行测速" width="320" />
+<img src="docs/screenshot.png" alt="NodeScope 1.1.0 在 iOS 26.2 的实际运行界面，地区排除与网络档案已启用，示例节点未测速" width="320" />
 
 ## 功能
 
