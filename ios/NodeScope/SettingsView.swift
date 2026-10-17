@@ -81,7 +81,7 @@ struct SettingsView: View {
                     Text("每节点、每网络档案保留最近 30 次记录，总上限 10,000 条。此处流量仅汇总已保留的完整测试记录，不是累计账单；取消、失败、订阅导入和协议开销可能未计入。订阅和凭据仅在本机加密保存。")
                 }
                 Section {
-                    LabeledContent("版本", value: "1.2.0")
+                    LabeledContent("版本", value: "1.2.1")
                     Link("项目源码与使用说明", destination: URL(string: "https://github.com/yiyiyiyayayu/speed-text")!)
                     NavigationLink("开源许可") { LicensesView() }
                 }

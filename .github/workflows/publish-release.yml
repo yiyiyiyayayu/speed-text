@@ -55,6 +55,7 @@ jobs:
           sha256sum -c SHA256SUMS.txt
       - name: Validate IPA and derive version
         run: |
+          python3 scripts/package-ipa.py verify dist/NodeScope-unsigned.ipa
           python3 - <<'PY'
           import os, plistlib, re, struct, zipfile
           with zipfile.ZipFile('dist/NodeScope-unsigned.ipa') as archive:

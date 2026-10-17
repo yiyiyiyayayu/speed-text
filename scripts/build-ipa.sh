@@ -9,9 +9,8 @@ xcodegen generate
 xcodebuild -project NodeScope.xcodeproj -scheme NodeScope -configuration Release \
   -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$TASK_ROOT/build/DerivedData" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
-mkdir -p "$TASK_ROOT/build/package/Payload" "$TASK_ROOT/dist"
-cp -R "$TASK_ROOT/build/DerivedData/Build/Products/Release-iphoneos/NodeScope.app" "$TASK_ROOT/build/package/Payload/"
-cd "$TASK_ROOT/build/package"
-zip -qry "$TASK_ROOT/dist/NodeScope-unsigned.ipa" Payload
+python3 "$TASK_ROOT/scripts/package-ipa.py" package \
+  "$TASK_ROOT/build/DerivedData/Build/Products/Release-iphoneos/NodeScope.app" \
+  "$TASK_ROOT/dist/NodeScope-unsigned.ipa"
 cd "$TASK_ROOT/dist"
 shasum -a 256 NodeScope-unsigned.ipa > SHA256SUMS.txt
