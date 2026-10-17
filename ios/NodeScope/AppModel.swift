@@ -119,8 +119,10 @@ final class AppModel: ObservableObject {
     func ranked() -> [RankedNode] {
         let recentCutoff = Date().addingTimeInterval(-24 * 3600)
         let freshCutoff = Date().addingTimeInterval(-30 * 60)
+        let comparable = vault.measurements.filter { $0.network == network && $0.latencyURL == settings.latencyURL }
+        let byEntry = Dictionary(grouping: comparable) { $0.subscriptionID.uuidString + "/" + $0.nodeID }
         var rows = visibleEntries.map { entry -> RankedNode in
-            let history = history(for: entry).filter { $0.network == network && $0.latencyURL == settings.latencyURL }
+            let history = (byEntry[entry.id] ?? []).sorted { $0.date > $1.date }
             let latest = history.first
             let recent = Array(history.filter { $0.date >= recentCutoff }.prefix(12))
             let average = recent.isEmpty ? 0 : recent.reduce(0) { $0 + $1.metrics.score } / Double(recent.count)

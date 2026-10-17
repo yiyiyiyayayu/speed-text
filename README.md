@@ -16,6 +16,8 @@
 
 ## 下载 IPA 并使用全能签
 
+可在 [Releases 下载最新 IPA](https://github.com/yiyiyiyayayu/speed-text/releases/latest)，直接下载 `NodeScope-unsigned.ipa` 后按下面第 3、4 步签名安装。每次代码更新的测试构建则位于 Actions：
+
 1. 打开 [Actions → Build iOS IPA](https://github.com/yiyiyiyayayu/speed-text/actions/workflows/build-ios.yml)。代码更新会自动构建，也可点 **Run workflow** 手动构建。
 2. 打开最新一次**绿色成功**的运行，在页面下方 **Artifacts** 下载 `NodeScope-unsigned-IPA`。需要登录 GitHub；产物保留 30 天，过期可重新运行。
 3. 解压 ZIP，得到 `NodeScope-unsigned.ipa`，通过“文件”导入全能签。
