@@ -35,7 +35,7 @@ jobs:
 
   build:
     name: Unsigned IPA for ESign
-    needs: [core-tests, ios-tests]
+    needs: core-tests
     runs-on: macos-15
     timeout-minutes: 35
     steps:
