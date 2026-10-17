@@ -33,7 +33,7 @@ jobs:
       - name: Compile simulator tests
         timeout-minutes: 12
         working-directory: ios
-        run: xcodebuild build-for-testing -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ../build/UITestDerivedData CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+        run: xcodebuild build-for-testing -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ../build/UITestDerivedData ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Boot latest iOS simulator
         timeout-minutes: 8
         run: |
@@ -44,7 +44,7 @@ jobs:
       - name: Run iOS logic and UI tests
         timeout-minutes: 10
         working-directory: ios
-        run: xcodebuild test-without-building -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -destination-timeout 90 -derivedDataPath ../build/UITestDerivedData -resultBundlePath ../build/UITests.xcresult -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 300 CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+        run: xcodebuild test-without-building -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -destination-timeout 90 -derivedDataPath ../build/UITestDerivedData -resultBundlePath ../build/UITests.xcresult -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 300 ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Export screenshots
         timeout-minutes: 2
         if: always()
