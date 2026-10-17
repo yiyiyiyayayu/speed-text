@@ -4,6 +4,10 @@
 
 **iOS 16+，SwiftUI 原生界面，支持全能签 / ESign 重签名安装。** 测速核心嵌入 App，不需要 Network Extension / VPN 扩展授权。它不会为其他 App 提供代理服务。
 
+已通过核心测试与模拟器的订阅导入、加密保存、重启恢复和下载开关记忆测试。
+
+<img src="docs/screenshot.png" alt="NodeScope 实际运行界面，示例节点未进行测速" width="320" />
+
 ## 功能
 
 - HTTPS 订阅、Clash YAML、Base64 分享链接订阅；按订阅分组更新与删除。

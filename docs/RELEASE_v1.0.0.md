@@ -1,5 +1,7 @@
 NodeScope（节点测速）首个版本，适用于 iOS 16 及以上的 iPhone / iPad。
 
+已通过核心测试、竞态与静态检查、iOS arm64 构建，以及模拟器订阅导入、加密保存、重启恢复和下载开关记忆测试。[构建记录](https://github.com/yiyiyiyayayu/speed-text/actions/runs/38999525204) · [界面测试](https://github.com/yiyiyiyayayu/speed-text/actions/runs/38999525301)。
+
 - 订阅分组，支持 Clash YAML 与常见分享链接订阅。
 - 多轮延迟、P95、失败率、抖动与历史记录。
 - 稳定性优先的评分与推荐档位，支持多种排序。
