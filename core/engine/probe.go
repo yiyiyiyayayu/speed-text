@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -19,24 +18,26 @@ import (
 )
 
 type Options struct {
-	Rounds          int    `json:"rounds"`
-	TimeoutSeconds  int    `json:"timeoutSeconds"`
-	IntervalMS      int    `json:"intervalMS"`
-	LatencyURL      string `json:"latencyURL"`
-	DownloadURL     string `json:"downloadURL"`
-	DownloadEnabled bool   `json:"downloadEnabled"`
-	DownloadBytes   int64  `json:"downloadBytes"`
-	DownloadSeconds int    `json:"downloadSeconds"`
+	Rounds              int    `json:"rounds"`
+	TimeoutSeconds      int    `json:"timeoutSeconds"`
+	IntervalMS          int    `json:"intervalMS"`
+	LatencyURL          string `json:"latencyURL"`
+	DownloadURL         string `json:"downloadURL"`
+	DownloadEnabled     bool   `json:"downloadEnabled"`
+	DownloadBytes       int64  `json:"downloadBytes"`
+	DownloadSeconds     int    `json:"downloadSeconds"`
+	DownloadConnections int    `json:"downloadConnections"`
 }
 
 type TestResult struct {
-	Metrics         Metrics   `json:"metrics"`
-	Samples         []float64 `json:"samples"`
-	DownloadMbps    *float64  `json:"downloadMbps,omitempty"`
-	DownloadedBytes int64     `json:"downloadedBytes"`
-	DownloadError   string    `json:"downloadError,omitempty"`
-	Error           string    `json:"error,omitempty"`
-	Cancelled       bool      `json:"cancelled"`
+	Metrics         Metrics          `json:"metrics"`
+	Samples         []float64        `json:"samples"`
+	DownloadMbps    *float64         `json:"downloadMbps,omitempty"`
+	DownloadedBytes int64            `json:"downloadedBytes"`
+	DownloadError   string           `json:"downloadError,omitempty"`
+	DownloadDetails *DownloadDetails `json:"downloadDetails,omitempty"`
+	Error           string           `json:"error,omitempty"`
+	Cancelled       bool             `json:"cancelled"`
 }
 
 type runContext struct {
@@ -134,7 +135,7 @@ func TestNode(id int64, config string, options Options) (result TestResult) {
 		return
 	}
 	if options.DownloadEnabled {
-		if validateHTTPS(options.DownloadURL) != nil || options.DownloadBytes < 65536 || options.DownloadBytes > 32<<20 || options.DownloadSeconds < 1 || options.DownloadSeconds > 10 {
+		if validateHTTPS(options.DownloadURL) != nil || options.DownloadBytes < 65536 || options.DownloadBytes > 128<<20 || options.DownloadSeconds < 1 || options.DownloadSeconds > 15 || (options.DownloadConnections != 0 && options.DownloadConnections != 1 && options.DownloadConnections != 4) {
 			result.Error = "无效的下载测试参数"
 			return
 		}
@@ -192,47 +193,13 @@ func TestNode(id int64, config string, options Options) (result TestResult) {
 			result.Cancelled = true
 			return
 		}
-		// Serialize downloads to avoid bandwidth competition. Fresh transport and
-		// connection include setup cost, a conservative end-to-end throughput.
-		result.DownloadMbps, result.DownloadedBytes, result.DownloadError = download(run.ctx, proxy, options)
+		// Nodes stay serialized; optional streams belong to this one node only.
+		measured := download(run.ctx, proxy, options)
+		result.DownloadMbps, result.DownloadedBytes, result.DownloadError = measured.Mbps, measured.Bytes, measured.Error
+		result.DownloadDetails = &measured.Details
 		if run.ctx.Err() != nil {
 			result.Cancelled = true
 		}
 	}
 	return
-}
-
-func download(parent context.Context, proxy C.Proxy, options Options) (*float64, int64, string) {
-	ctx, cancel := context.WithTimeout(parent, time.Duration(options.DownloadSeconds)*time.Second)
-	defer cancel()
-	client := clientFor(proxy, time.Duration(options.DownloadSeconds)*time.Second)
-	defer client.CloseIdleConnections()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, options.DownloadURL, nil)
-	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", options.DownloadBytes-1))
-	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("Cache-Control", "no-cache, no-store")
-	start := time.Now()
-	response, err := client.Do(req)
-	if err != nil {
-		return nil, 0, "下载连接失败或超时"
-	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 && response.StatusCode != 206 {
-		return nil, 0, fmt.Sprintf("下载返回 HTTP %d", response.StatusCode)
-	}
-	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
-		return nil, 0, "下载服务器返回压缩内容"
-	}
-	n, readErr := io.Copy(io.Discard, io.LimitReader(response.Body, options.DownloadBytes))
-	if n < 65536 {
-		return nil, n, "下载数据不足 64 KiB"
-	}
-	if readErr != nil && ctx.Err() == nil {
-		return nil, n, "下载中断"
-	}
-	if parent.Err() != nil {
-		return nil, n, "测试已取消"
-	}
-	mbps := float64(n) * 8 / time.Since(start).Seconds() / 1e6
-	return &mbps, n, ""
 }

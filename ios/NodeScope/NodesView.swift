@@ -134,6 +134,9 @@ struct NodesView: View {
                     }
                 } label: { Label(model.settings.sort.rawValue, systemImage: "arrow.up.arrow.down").font(.caption.weight(.medium)) }
             }
+            if model.settings.sort == .speed {
+                Text("新测量优先排序；≈ 表示估计。单连接与多连接结果应分别比较。").font(.caption2).foregroundStyle(.secondary)
+            }
             if model.excludedCount > 0 {
                 Toggle("显示已排除节点（仍跳过测速）", isOn: $model.showExcluded).font(.caption)
                     .accessibilityIdentifier("showExcluded")
@@ -158,11 +161,11 @@ struct NodesView: View {
                 VStack(spacing: 6) {
                     HStack {
                         let profileName = model.vault.networkProfiles.first { $0.id == checkpoint.profileID }?.name ?? "原网络"
-                        Text("未完成 \(checkpoint.remainingEntryIDs.count) 个 · \(profileName)").font(.caption).lineLimit(1)
+                        Text("已完成 \(checkpoint.completedCount ?? 0) · 待测 \(checkpoint.remainingEntryIDs.count) · \(profileName)").font(.caption).lineLimit(1)
                         Spacer(minLength: 4)
-                        Button("继续") { model.resume() }.font(.caption.weight(.semibold))
+                        Button("继续") { model.resume() }.font(.caption.weight(.semibold)).accessibilityIdentifier("resumeTest")
                             .disabled(checkpoint.profileID != model.activeProfile?.id || model.importing || !model.online)
-                        Button("放弃", role: .destructive) { model.discardPaused() }.font(.caption)
+                        Button("放弃", role: .destructive) { model.discardPaused() }.font(.caption).accessibilityIdentifier("discardTest")
                     }
                     Text("沿用原任务设置 · 下载\(checkpoint.settings.downloadEnabled ? "开启" : "关闭") · \(checkpoint.settings.rounds)轮；已取消节点会重新采样")
                         .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
@@ -171,7 +174,7 @@ struct NodesView: View {
             if model.running {
                 ProgressView(value: Double(model.completed), total: Double(max(1, model.total)))
                 HStack {
-                    Text(model.stopping ? "正在停止…" : "测试中 · \(model.completed)/\(model.total)").font(.caption).foregroundStyle(.secondary)
+                    Text(model.stopping ? (model.pausing ? "正在暂停…" : "正在停止…") : "测试中 · \(model.completed)/\(model.total)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Text(model.backgroundStatus).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -190,20 +193,33 @@ struct NodesView: View {
                         .accessibilityIdentifier("downloadToggle")
                 }
             }
-            Button {
-                if model.running { model.stop() } else { model.start() }
-            } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: model.running ? "stop.fill" : "play.fill")
-                    Text(model.running ? (model.stopping ? "正在停止" : "停止测试") : "开始新测试 · \(model.testableEntries.count) 个节点").fontWeight(.semibold)
-                }.frame(maxWidth: .infinity).padding(.vertical, 12)
+            HStack(spacing: 12) {
+                runButton
+                if model.running {
+                    Button("停止并放弃", role: .destructive) { model.stop() }
+                        .font(.subheadline).padding(.vertical, 12).padding(.horizontal, 8)
+                        .disabled(model.stopping).accessibilityIdentifier("stopTest")
+                }
             }
-            .buttonStyle(.plain).foregroundStyle(.white)
-            .background(model.running ? Color.orange : Theme.accent, in: RoundedRectangle(cornerRadius: 15))
-            .disabled((!model.running && model.vault.pausedBatch != nil) || model.stopping || (!model.running && (model.testableEntries.isEmpty || model.importing || model.vaultReadFailed)))
-            .opacity(!model.running && model.testableEntries.isEmpty ? 0.5 : 1)
+
         }.padding(.horizontal, 14).padding(.vertical, 10).background(.regularMaterial)
     }
+    private var runButton: some View {
+        Button {
+            if model.running { model.pause() } else { model.start() }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: model.running ? "pause.fill" : "play.fill")
+                Text(model.running ? (model.stopping ? (model.pausing ? "正在暂停" : "正在停止") : "暂停测速") : "开始新测试 · \(model.testableEntries.count) 个节点").fontWeight(.semibold)
+            }.frame(maxWidth: .infinity).padding(.vertical, 12)
+        }
+        .buttonStyle(.plain).foregroundStyle(.white)
+        .background(model.running ? Color.orange : Theme.accent, in: RoundedRectangle(cornerRadius: 15))
+        .disabled((!model.running && model.vault.pausedBatch != nil) || model.stopping || (!model.running && (model.testableEntries.isEmpty || model.importing || model.vaultReadFailed)))
+        .opacity(!model.running && model.testableEntries.isEmpty ? 0.5 : 1)
+        .accessibilityIdentifier(model.running ? "pauseTest" : "startTest")
+    }
+
 }
 
 struct NodeCard: View {
@@ -236,8 +252,8 @@ struct NodeCard: View {
                 Spacer(minLength: 2)
                 if let record = row.latest {
                     if record.error != nil { Text("测试失败").foregroundStyle(.orange) }
-                    else if let speed = record.downloadMbps { Text("↓ \(speed.oneDecimal) Mbps").monospacedDigit() }
-                    else if record.downloadError != nil { Text("下载失败").foregroundStyle(.orange) }
+                    else if record.downloadMbps != nil { Text("↓ " + record.speedLabel + " · " + record.speedMBps).monospacedDigit() }
+                    else if record.downloadError != nil { Text("下载需重测").foregroundStyle(.orange) }
                 } else { Text(testing ? "采样中…" : "未测") }
             }.font(.system(size: 10)).foregroundStyle(.secondary)
         }
@@ -296,7 +312,21 @@ struct NodeDetailView: View {
                         LabeledContent("成功样本", value: "\(latest.metrics.successes) / \(latest.metrics.attempts)")
                         LabeledContent("单次评分", value: latest.metrics.score.oneDecimal)
                         LabeledContent("可靠性置信下界", value: "\(Int(latest.metrics.confidence * 100))%")
-                        if let speed = latest.downloadMbps { LabeledContent("下载速度", value: "\(speed.oneDecimal) Mbps") }
+                        if latest.downloadMbps != nil {
+                            LabeledContent("下载速度", value: latest.speedLabel)
+                            LabeledContent("换算为 MB/s", value: latest.speedMBps)
+                            Text(latest.speedQuality).font(.caption).foregroundStyle(latest.speedApproximate ? Color.orange : Color.secondary)
+                        }
+                        if let details = latest.downloadDetails {
+                            LabeledContent("有效采样时长", value: "\(details.sampleSeconds.oneDecimal) 秒")
+                            LabeledContent("连接数（有数据 / 请求）", value: "\(details.activeConnections) / \(details.connections)")
+                            LabeledContent("建连与首包", value: "\(details.setupMS.ms) ms")
+                            LabeledContent("预热读取量", value: ByteCountFormatter.string(fromByteCount: details.warmupBytes, countStyle: .binary))
+                            LabeledContent("有效采样读取量", value: ByteCountFormatter.string(fromByteCount: details.measuredBytes, countStyle: .binary))
+                            LabeledContent("含建连均速（参考）", value: "\(details.endToEndMbps.oneDecimal) Mbps")
+                            Text("显示的是节点到下载测试源的正文传输均速。少于 1 秒、连接未全部参与或部分失败时标为估计；不足 0.1 秒不报速度。更长样本更有参考价值。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         LabeledContent("下载读取量", value: ByteCountFormatter.string(fromByteCount: latest.downloadedBytes, countStyle: .binary))
                         if let error = latest.error { Text(error).foregroundStyle(.orange) }
                         if let error = latest.downloadError { Text(error).foregroundStyle(.orange) }

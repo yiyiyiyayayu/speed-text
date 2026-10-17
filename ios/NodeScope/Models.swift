@@ -35,10 +35,24 @@ struct Metrics: Codable, Sendable {
     var confidence: Double
 }
 
+struct DownloadDetails: Codable, Sendable {
+    var version: Int
+    var connections: Int
+    var activeConnections: Int
+    var setupMS: Double
+    var sampleSeconds: Double
+    var measuredBytes: Int64
+    var warmupBytes: Int64
+    var endToEndMbps: Double
+    var shortSample: Bool
+    var partialFailure: Bool
+}
+
 struct ProbeResponse: Decodable, Sendable {
     var metrics: Metrics?
     var samples: [Double]?
     var downloadMbps: Double?
+    var downloadDetails: DownloadDetails?
     var downloadedBytes: Int64?
     var downloadError: String?
     var error: String?
@@ -57,9 +71,22 @@ struct Measurement: Codable, Identifiable, Sendable {
     var metrics: Metrics
     var samples: [Double]
     var downloadMbps: Double?
+    var downloadDetails: DownloadDetails?
     var downloadedBytes: Int64
     var downloadError: String?
     var error: String?
+}
+
+extension Measurement {
+    var speedApproximate: Bool { downloadDetails == nil || downloadDetails?.shortSample == true || downloadDetails?.partialFailure == true }
+    var speedLabel: String { (speedApproximate ? "≈ " : "") + (downloadMbps?.oneDecimal ?? "—") + " Mbps" }
+    var speedMBps: String { ((downloadMbps ?? 0) / 8).oneDecimal + " MB/s" }
+    var speedMethodGroup: Int { downloadMbps == nil ? -1 : (downloadDetails?.version == 2 ? 1 : 0) }
+    var speedQuality: String {
+        guard let details = downloadDetails else { return "旧版含建连均速" }
+        if details.partialFailure { return "部分连接失败 · 估计" }
+        return details.shortSample ? "短样本估计" : "有效采样 \(details.sampleSeconds.oneDecimal) 秒"
+    }
 }
 
 enum NodeSort: String, CaseIterable, Codable {
@@ -77,13 +104,33 @@ struct TestSettings: Codable, Sendable {
     var downloadURL = "https://speed.cloudflare.com/__down?bytes=8388608"
     var downloadMiB = 8
     var downloadSeconds = 4
+    var downloadConnections = 1
     var sort = NodeSort.recommended
+
+    init() {}
+    enum CodingKeys: String, CodingKey { case downloadEnabled, wifiOnly, rounds, timeoutSeconds, intervalMS, concurrency, latencyURL, downloadURL, downloadMiB, downloadSeconds, downloadConnections, sort }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = TestSettings()
+        downloadEnabled = try values.decodeIfPresent(Bool.self, forKey: .downloadEnabled) ?? defaults.downloadEnabled
+        wifiOnly = try values.decodeIfPresent(Bool.self, forKey: .wifiOnly) ?? defaults.wifiOnly
+        rounds = try values.decodeIfPresent(Int.self, forKey: .rounds) ?? defaults.rounds
+        timeoutSeconds = try values.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? defaults.timeoutSeconds
+        intervalMS = try values.decodeIfPresent(Int.self, forKey: .intervalMS) ?? defaults.intervalMS
+        concurrency = try values.decodeIfPresent(Int.self, forKey: .concurrency) ?? defaults.concurrency
+        latencyURL = try values.decodeIfPresent(String.self, forKey: .latencyURL) ?? defaults.latencyURL
+        downloadURL = try values.decodeIfPresent(String.self, forKey: .downloadURL) ?? defaults.downloadURL
+        downloadMiB = try values.decodeIfPresent(Int.self, forKey: .downloadMiB) ?? defaults.downloadMiB
+        downloadSeconds = try values.decodeIfPresent(Int.self, forKey: .downloadSeconds) ?? defaults.downloadSeconds
+        downloadConnections = try values.decodeIfPresent(Int.self, forKey: .downloadConnections) ?? defaults.downloadConnections
+        sort = try values.decodeIfPresent(NodeSort.self, forKey: .sort) ?? defaults.sort
+    }
 
     var optionsJSON: String {
         let options: [String: Any] = ["rounds": rounds, "timeoutSeconds": timeoutSeconds,
             "intervalMS": intervalMS, "latencyURL": latencyURL, "downloadURL": downloadURL,
             "downloadEnabled": downloadEnabled, "downloadBytes": downloadMiB * 1_048_576,
-            "downloadSeconds": downloadSeconds]
+            "downloadSeconds": downloadSeconds, "downloadConnections": downloadConnections]
         return String(data: (try? JSONSerialization.data(withJSONObject: options)) ?? Data(), encoding: .utf8) ?? "{}"
     }
     var valid: Bool {

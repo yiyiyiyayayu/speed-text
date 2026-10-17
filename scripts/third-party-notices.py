@@ -13,7 +13,7 @@ while raw.strip():
     module, end = decoder.raw_decode(raw.lstrip())
     modules.append(module)
     raw = raw.lstrip()[end:]
-parts = ["NodeScope 1.1.0 — GPL-3.0\nSource: https://github.com/yiyiyiyayayu/speed-text\n"]
+parts = ["NodeScope 1.2.0 — GPL-3.0\nSource: https://github.com/yiyiyiyayayu/speed-text\n"]
 for module in modules:
     if module.get("Main"):
         continue

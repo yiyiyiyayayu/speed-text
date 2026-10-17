@@ -181,12 +181,12 @@ func TestDownloadReadLimitAndHTTPFailures(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := Options{DownloadURL: server.URL, DownloadBytes: 128 << 10, DownloadSeconds: 2}
-	speed, n, message := download(context.Background(), proxy, opts)
-	if speed == nil || *speed <= 0 || n != 128<<10 || message != "" {
-		t.Fatalf("download limit failed: %v %d %s", speed, n, message)
+	result := download(context.Background(), proxy, opts)
+	if result.Bytes != 128<<10 || result.Details.Version != 2 {
+		t.Fatalf("download limit failed: %+v", result)
 	}
 	opts.DownloadURL = server.URL + "/error"
-	if speed, _, message := download(context.Background(), proxy, opts); speed != nil || message == "" {
+	if result := download(context.Background(), proxy, opts); result.Mbps != nil || result.Error == "" {
 		t.Fatal("HTTP error became speed result")
 	}
 }

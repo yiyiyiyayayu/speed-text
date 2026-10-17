@@ -20,6 +20,7 @@ final class AppModel: ObservableObject {
     @Published var query = ""
     @Published var running = false
     @Published var stopping = false
+    @Published var pausing = false
     @Published var pending: Set<String> = []
     @Published var completed = 0
     @Published var total = 0
@@ -243,6 +244,8 @@ final class AppModel: ObservableObject {
                 let xj = a.latest?.metrics.jitterMS ?? .infinity, yj = b.latest?.metrics.jitterMS ?? .infinity
                 if xj != yj { return xj < yj }
             case .speed:
+                let am = a.latest?.speedMethodGroup ?? -1, bm = b.latest?.speedMethodGroup ?? -1
+                if am != bm { return am > bm }
                 let x = a.latest?.downloadMbps ?? -1, y = b.latest?.downloadMbps ?? -1
                 if x != y { return x > y }
             case .name: break
@@ -275,19 +278,24 @@ final class AppModel: ObservableObject {
         if snapshot.downloadEnabled && snapshot.wifiOnly && !onWiFi { notice = "下载测速仅限 Wi-Fi，请连接 Wi-Fi 或在设置中关闭此限制"; return }
         let entries = requested.filter { !preferences.excludes($0) }
         guard !entries.isEmpty else { notice = "没有可测试节点，请检查排除设置。"; return }
-        vault.pausedBatch = PausedBatch(batchID: batchID, profileID: profile.id, remainingEntryIDs: entries.map(\.id), settings: snapshot)
+        let previous = vault.pausedBatch?.batchID == batchID ? vault.pausedBatch : nil
+        let priorCompleted = previous?.completedCount ?? 0
+        var checkpoint = PausedBatch(batchID: batchID, profileID: profile.id, remainingEntryIDs: entries.map(\.id), settings: snapshot, completedCount: priorCompleted)
+        checkpoint.createdAt = previous?.createdAt ?? Date()
+        vault.pausedBatch = checkpoint
         // Never start sockets if the durable queue could not be written.
         guard save() else { return }
         let id = NSNewRun()
-        runID = id; running = true; stopping = false; completed = 0; total = entries.count
+        runID = id; running = true; stopping = false; pausing = false; completed = priorCompleted; total = priorCompleted + entries.count
         pending = Set(entries.map(\.id))
         UIApplication.shared.isIdleTimerDisabled = true
         backgroundStatus = preferences.continueInBackground ? "短时后台续测" : "后台即暂停"
         if preferences.continueInBackground {
             if #available(iOS 26.0, *) {
-                let requested = ContinuedRunCoordinator.shared.begin(total: entries.count, onReady: { [weak self] in
+                let requested = ContinuedRunCoordinator.shared.begin(total: total, onReady: { [weak self] in
                     guard let self, self.running, !self.stopping else { ContinuedRunCoordinator.shared.finish(success: false); return }
                     self.backgroundStatus = "系统持续后台任务已启用"
+                    ContinuedRunCoordinator.shared.updateProgress(completed: self.completed, total: self.total)
                     self.endBackgroundContinuation()
                 }, onExpiration: { [weak self] in
                     self?.pause(reason: "系统已结束后台任务，未完成节点已保存，回到前台后可继续。")
@@ -319,7 +327,7 @@ final class AppModel: ObservableObject {
                         let fallback = Metrics(attempts: 0, successes: 0, failureRate: 1, medianMS: 0, p95MS: 0, jitterMS: 0, score: 0, confidence: 0)
                         let measurement = Measurement(batchID: batchID, subscriptionID: entry.subscription.id, nodeID: entry.node.id,
                             network: profile.name, networkProfileID: profile.id, latencyURL: snapshot.latencyURL, metrics: response.metrics ?? fallback,
-                            samples: response.samples ?? [], downloadMbps: response.downloadMbps,
+                            samples: response.samples ?? [], downloadMbps: response.downloadMbps, downloadDetails: response.downloadDetails,
                             downloadedBytes: response.downloadedBytes ?? 0, downloadError: response.downloadError, error: response.error)
                         self.vault.measurements.insert(measurement, at: 0)
                         // Preserve a separate history budget for each network/node pair.
@@ -329,6 +337,7 @@ final class AppModel: ObservableObject {
                         }.dropFirst(30)
                         for index in old.reversed() { self.vault.measurements.remove(at: index) }
                         if self.vault.measurements.count > 10_000 { self.vault.measurements = Array(self.vault.measurements.prefix(10_000)) }
+                        self.vault.pausedBatch?.completedCount = self.completed
                         self.vault.pausedBatch?.remainingEntryIDs.removeAll { $0 == entry.id }
                         self.save()
                     }
@@ -336,7 +345,7 @@ final class AppModel: ObservableObject {
                 }
             }
             NSEndRun(id)
-            self.runID = nil; self.running = false; self.stopping = false; self.pending = []
+            self.runID = nil; self.running = false; self.stopping = false; self.pausing = false; self.pending = []
             if self.vault.pausedBatch?.remainingEntryIDs.isEmpty == true { self.vault.pausedBatch = nil }
             self.save()
             if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.finish(success: self.completed == self.total) }
@@ -348,17 +357,18 @@ final class AppModel: ObservableObject {
     }
 
     func stop() {
-        // User stops are final; only lifecycle/network pauses retain a resumable queue.
+        // Stop discards the queue. Pause (manual, lifecycle or network) retains it.
         guard let runID else { return }
         vault.pausedBatch = nil; save()
         stopping = true; NSCancelRun(runID)
         if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.finish(success: false) }
     }
-    func pause(reason: String) {
-        guard let runID else { return }
+    func pause(reason: String? = nil) {
+        guard let runID, !stopping else { return }
+        pausing = true
         stopping = true; NSCancelRun(runID)
         if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.finish(success: false) }
-        save(); notice = reason
+        save(); if let reason { notice = reason }
     }
     func sceneChanged(_ phase: ScenePhase) {
         if phase == .background {
@@ -394,14 +404,16 @@ final class AppModel: ObservableObject {
             let safe = ["=", "+", "-", "@", "\t", "\r"].contains(where: { value.hasPrefix($0) }) ? "'" + value : value
             return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
-        var lines = ["订阅,节点,协议,时间,网络,延迟ms,P95ms,抖动ms,失败率,评分,下载Mbps,下载字节"]
+        var lines = ["订阅,节点,协议,时间,网络,延迟ms,P95ms,抖动ms,失败率,评分,下载Mbps,下载MB每秒,下载字节,下载方法版本,有效采样秒,下载连接数,下载样本说明"]
         for row in ranked() {
             guard let record = row.latest else { continue }
-            let fields = [row.entry.subscription.name, row.entry.node.name, row.entry.node.kind,
+            let fields: [String] = [row.entry.subscription.name, row.entry.node.name, row.entry.node.kind,
                           ISO8601DateFormatter().string(from: record.date), networkName(for: record),
                           record.metrics.medianMS.oneDecimal, record.metrics.p95MS.oneDecimal,
                           record.metrics.jitterMS.oneDecimal, String(record.metrics.failureRate), row.score.oneDecimal,
-                          record.downloadMbps?.oneDecimal ?? "", String(record.downloadedBytes)]
+                          record.downloadMbps?.oneDecimal ?? "", record.downloadMbps.map { ($0 / 8).oneDecimal } ?? "", String(record.downloadedBytes),
+                          String(record.downloadDetails?.version ?? 1), record.downloadDetails?.sampleSeconds.oneDecimal ?? "",
+                          record.downloadDetails.map { String($0.connections) } ?? "1", record.downloadMbps == nil ? (record.downloadError ?? "") : record.speedQuality]
             lines.append(fields.map(quote).joined(separator: ","))
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("NodeScope-测速结果.csv")

@@ -18,6 +18,7 @@ struct PausedBatch: Codable, Sendable {
     var profileID: UUID
     var remainingEntryIDs: [String]
     var settings: TestSettings
+    var completedCount: Int?
     var createdAt = Date()
 }
 

@@ -147,4 +147,85 @@ final class PolicyTests: XCTestCase {
         XCTAssertEqual(model.vault.measurements.first?.networkProfileID, profile.id)
     }
 
+    func testLegacyDownloadSettingsRetainTrafficLimits() throws {
+        var settings = TestSettings()
+        settings.downloadEnabled = true; settings.downloadMiB = 16; settings.rounds = 32
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+        legacy.removeValue(forKey: "downloadConnections")
+        let restored = try JSONDecoder().decode(TestSettings.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertTrue(restored.downloadEnabled)
+        XCTAssertEqual(restored.downloadMiB, 16)
+        XCTAssertEqual(restored.rounds, 32)
+        XCTAssertEqual(restored.downloadConnections, 1)
+    }
+
+    func testDownloadUnitsAndLegacyResultsRemainIdentifiable() throws {
+        let json = Data("""
+        {"downloadMbps":80,"downloadDetails":{"version":2,"connections":4,"activeConnections":4,"setupMS":300,"sampleSeconds":2,"measuredBytes":20000000,"warmupBytes":262144,"endToEndMbps":65,"shortSample":false,"partialFailure":false}}
+        """.utf8)
+        let response = try JSONDecoder().decode(ProbeResponse.self, from: json)
+        var record = measurement(entry("Tokyo"), profileID: UUID(), score: 80)
+        record.downloadMbps = response.downloadMbps; record.downloadDetails = response.downloadDetails
+        XCTAssertEqual(record.speedMBps, "10.0 MB/s")
+        XCTAssertFalse(record.speedApproximate)
+        record.downloadDetails?.shortSample = true
+        XCTAssertTrue(record.speedLabel.hasPrefix("≈"))
+        record.downloadDetails = nil
+        XCTAssertEqual(record.speedQuality, "旧版含建连均速")
+    }
+
+    @MainActor
+    func testManualPauseKeepsCompletedNodesAndSurvivesRelaunch() async throws {
+        let first = ProxyNode(id: "one", name: "One", kind: "ss", server: "example.com", port: 443, config: "first")
+        let second = ProxyNode(id: "two", name: "Two", kind: "ss", server: "example.com", port: 443, config: "second")
+        let subscription = Subscription(name: "demo", url: "", nodes: [first, second])
+        let item = NodeEntry(subscription: subscription, node: first)
+        let profile = NetworkProfile(name: "Home", kind: .wifi)
+        var vault = VaultData(); vault.subscriptions = [subscription]; vault.networkProfiles = [profile]
+        vault.activeProfiles["wifi"] = profile.id
+        let suite = "NodeScope.pause." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let secondStarted = expectation(description: "second node started")
+        let gate = DispatchSemaphore(value: 0)
+        let result = ProbeResponse(metrics: measurement(item, profileID: profile.id, score: 80).metrics, samples: [30])
+        let model = AppModel(initialVault: vault, observeNetwork: false, defaults: defaults, persist: { _ in }, probe: { _, config, _ in
+            if config == "second" { secondStarted.fulfill(); _ = gate.wait(timeout: .now() + 5) }
+            return result
+        })
+        model.settings.concurrency = 1; model.preferences.continueInBackground = false
+        model.updateNetwork(kind: .wifi, satisfied: true, signature: "wifi")
+        model.start()
+        await fulfillment(of: [secondStarted], timeout: 3)
+        model.pause()
+        XCTAssertTrue(model.pausing)
+        XCTAssertNil(model.notice)
+        gate.signal()
+        for _ in 0..<200 where model.running { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(model.running)
+        XCTAssertEqual(model.vault.measurements.count, 1)
+        XCTAssertEqual(model.vault.pausedBatch?.completedCount, 1)
+        XCTAssertEqual(model.vault.pausedBatch?.remainingEntryIDs.count, 1)
+        let restoredVault = try JSONDecoder().decode(VaultData.self, from: JSONEncoder().encode(model.vault))
+        let resumed = AppModel(initialVault: restoredVault, observeNetwork: false, defaults: defaults, persist: { _ in }, probe: { _, config, _ in
+            XCTAssertEqual(config, "second")
+            return result
+        })
+        resumed.updateNetwork(kind: .wifi, satisfied: true, signature: "wifi")
+        resumed.resume()
+        XCTAssertEqual(resumed.completed, 1)
+        XCTAssertEqual(resumed.total, 2)
+        for _ in 0..<200 where resumed.running { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(resumed.running)
+        XCTAssertEqual(resumed.completed, 2)
+        XCTAssertEqual(resumed.vault.measurements.count, 2)
+        XCTAssertEqual(Set(resumed.vault.measurements.map(\.batchID)).count, 1)
+        XCTAssertNil(resumed.vault.pausedBatch)
+        resumed.start(entries: [NodeEntry(subscription: subscription, node: second)])
+        resumed.stop()
+        for _ in 0..<200 where resumed.running { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(resumed.vault.pausedBatch)
+        XCTAssertEqual(resumed.vault.measurements.count, 2)
+    }
+
 }

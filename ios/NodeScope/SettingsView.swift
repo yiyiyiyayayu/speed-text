@@ -19,14 +19,21 @@ struct SettingsView: View {
                 Section {
                     Toggle("下载测速", isOn: $model.settings.downloadEnabled)
                     Toggle("下载测速仅限 Wi-Fi", isOn: $model.settings.wifiOnly)
+                    Picker("下载连接数", selection: $model.settings.downloadConnections) {
+                        Text("单连接 · 日常单路表现").tag(1)
+                        Text("4 连接 · 多路吞吐").tag(4)
+                    }
                     Picker("每节点读取上限", selection: $model.settings.downloadMiB) {
-                        ForEach([2, 4, 8, 16, 32], id: \.self) { Text("\($0) MiB").tag($0) }
+                        ForEach([2, 4, 8, 16, 32, 64, 128], id: \.self) { Text("\($0) MiB").tag($0) }
                     }
                     Picker("每节点时长上限", selection: $model.settings.downloadSeconds) {
-                        ForEach([2, 4, 6, 8], id: \.self) { Text("\($0) 秒").tag($0) }
+                        ForEach([2, 4, 6, 8, 12], id: \.self) { Text("\($0) 秒").tag($0) }
+                    }
+                    Button("较长采样：64 MiB / 8 秒 / 4 连接") {
+                        model.settings.downloadMiB = 64; model.settings.downloadSeconds = 8; model.settings.downloadConnections = 4
                     }
                 } header: { Text("下载与流量") } footer: {
-                    Text("开关自动记忆，默认关闭。下载速度使用 Mbps；8 Mbps 约为 1 MB/s。读取量和时间以先达到者为准。协议、握手、缓冲等会增加实际网络流量，读取上限不是运营商流量硬限额。下载测试串行进行。")
+                    Text("开关与设置自动记忆，默认关闭，不自动增加原有流量上限。Mbps 是兆比特/秒，8 Mbps = 1 MB/s。新测量排除建连、首包和短预热，正文采样不足 1 秒时标记 ≈，不足 0.1 秒不报速度。高速节点需要更大读取量才能形成较长样本。多个连接共用每节点读取上限（含预热），不同节点仍串行。计时上限含建连；达到读取量或时间上限即结束。缓冲与协议开销会额外耗流量，上限不是运营商账单硬限额。")
                 }
                 Section {
                     Picker("采样轮次", selection: $model.settings.rounds) {
@@ -58,8 +65,12 @@ struct SettingsView: View {
                             .font(.subheadline).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                 } header: { Text("测试目标") } footer: {
-                    Text("默认使用 Google 204 和 Cloudflare 下载端点，会通过每个被测节点访问。服务可用性可能改变，可换为自己的地址。只接受 HTTPS，重定向不会视为测试成功。比较结果时应使用相同测试地址。")
+                    Text("默认使用 Google 204 和 Cloudflare 下载端点，会通过每个被测节点访问。服务可用性可能改变，可换为自己的地址。默认下载端点会按读取上限生成数据，不再固定返回 8 MiB。自定义地址保持原样，应能提供足够大的二进制文件。只接受 HTTPS，网页、压缩内容、重定向不视为有效下载。比较时应使用相同地址与连接数。")
                 }
+                Section {
+                    Text("测速页可主动暂停，保留完成记录和剩余队列；继续时沿用原设置，未完成节点重新采样。“停止并放弃”会丢弃剩余队列。更换网络后需回到原网络档案再继续。")
+                        .font(.caption).foregroundStyle(.secondary)
+                } header: { Text("暂停与继续") }
                 Section("评分与推荐") {
                     NavigationLink("查看算法说明") { AlgorithmView() }
                 }
@@ -70,7 +81,7 @@ struct SettingsView: View {
                     Text("每节点、每网络档案保留最近 30 次记录，总上限 10,000 条。此处流量仅汇总已保留的完整测试记录，不是累计账单；取消、失败、订阅导入和协议开销可能未计入。订阅和凭据仅在本机加密保存。")
                 }
                 Section {
-                    LabeledContent("版本", value: "1.1.0")
+                    LabeledContent("版本", value: "1.2.0")
                     Link("项目源码与使用说明", destination: URL(string: "https://github.com/yiyiyiyayayu/speed-text")!)
                     NavigationLink("开源许可") { LicensesView() }
                 }
