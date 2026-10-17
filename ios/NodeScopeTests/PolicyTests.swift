@@ -44,7 +44,7 @@ final class PolicyTests: XCTestCase {
         let old = measurement(item, profileID: nil, score: 100)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
         json.removeValue(forKey: "networkProfileID")
-        let decoded = try JSONDecoder().decode(Measurement.self, from: JSONSerialization.data(withJSONObject: json))
+        let decoded = try JSONDecoder().decode(NodeScope.Measurement.self, from: JSONSerialization.data(withJSONObject: json))
         XCTAssertNil(decoded.networkProfileID)
     }
 
@@ -62,8 +62,8 @@ final class PolicyTests: XCTestCase {
         XCTAssertEqual(copy.pausedBatch?.settings.rounds, 16)
     }
 
-    private func measurement(_ entry: NodeEntry, profileID: UUID?, score: Double) -> Measurement {
-        Measurement(batchID: UUID(), subscriptionID: entry.subscription.id, nodeID: entry.node.id,
+    private func measurement(_ entry: NodeEntry, profileID: UUID?, score: Double) -> NodeScope.Measurement {
+        NodeScope.Measurement(batchID: UUID(), subscriptionID: entry.subscription.id, nodeID: entry.node.id,
             network: "Wi-Fi", networkProfileID: profileID, latencyURL: TestSettings().latencyURL,
             metrics: Metrics(attempts: 8, successes: 8, failureRate: 0, medianMS: 30, p95MS: 40, jitterMS: 2, score: score, confidence: 0.7),
             samples: [30], downloadedBytes: 0)

@@ -65,7 +65,7 @@ go test -race ./...
 go vet ./...
 ```
 
-macOS 安装 Xcode、Go 1.24.7、XcodeGen（`brew install xcodegen`），然后：
+macOS 安装 Xcode 26 或更新版本（含 iOS 26 SDK）、Go 1.24.7、XcodeGen（`brew install xcodegen`），然后：
 
 ```sh
 bash scripts/build-ipa.sh
@@ -86,3 +86,5 @@ scripts/            iOS 构建、打包和开源声明
 ## 开源许可
 
 项目使用 [GPL-3.0](LICENSE)。Mihomo v1.19.10 以 GPL-3.0 发布，其源码由 `core/go.mod`、`core/go.sum` 固定，源码地址为 [MetaCubeX/mihomo](https://github.com/MetaCubeX/mihomo/tree/v1.19.10)。各依赖许可证在构建时汇总到 App 内「开源许可」和下载附件 `THIRD_PARTY_NOTICES.txt`。
+
+后台持续任务使用 Apple 官方 [BGContinuedProcessingTask](https://developer.apple.com/documentation/backgroundtasks/bgcontinuedprocessingtask)，仅响应用户启动，使用 CPU 与网络，不申请后台 GPU 权限。
