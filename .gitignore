@@ -13,3 +13,5 @@ ios/NodeScope/THIRD_PARTY_NOTICES.txt
 .env
 .env.*
 subscriptions*
+__pycache__/
+*.pyc

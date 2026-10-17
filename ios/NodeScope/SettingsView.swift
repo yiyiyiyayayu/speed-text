@@ -32,9 +32,9 @@ struct SettingsView: View {
                     }
                     Picker("并行节点", selection: $model.settings.concurrency) {
                         ForEach([1, 2, 3, 4, 6], id: \.self) { Text("\($0) 个").tag($0) }
-                    }
+                    }.disabled(model.settings.downloadEnabled)
                 } header: { Text("延迟采样") } footer: {
-                    Text("延迟包含节点连接、TLS 和测试请求。失败率是请求失败比例，不是 ICMP 丢包率。建议隔一段时间重复测试；要减少测试之间的资源竞争，可选择 1 个并行节点。iOS 不保证持续后台运行，请尽量保持 App 在前台。")
+                    Text("延迟包含节点连接、TLS 和测试请求。失败率是请求失败比例，不是 ICMP 丢包率。开启下载时全部节点依次测试，避免下载占用带宽干扰其他节点延迟。建议隔一段时间重复测试。iOS 不保证持续后台运行，请尽量保持 App 在前台。")
                 }
                 Section {
                     VStack(alignment: .leading, spacing: 8) {

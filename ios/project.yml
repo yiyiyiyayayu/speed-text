@@ -9,6 +9,7 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGNING_ALLOWED: NO
     ENABLE_BITCODE: NO
+    ENABLE_DEBUG_DYLIB: NO
     MARKETING_VERSION: '1.0.0'
     CURRENT_PROJECT_VERSION: '1'
 targets:
@@ -22,6 +23,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.nodescope.speedtest
         SWIFT_OBJC_BRIDGING_HEADER: NodeScope/NodeScope-Bridging-Header.h
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LIBRARY_SEARCH_PATHS: ['$(inherited)', '$(PROJECT_DIR)/Frameworks']
         OTHER_LDFLAGS: ['$(inherited)', '-lresolv', '-framework', 'Security', '-framework', 'CoreFoundation']
     dependencies:
       - framework: Frameworks/libNodeCore.a

@@ -191,7 +191,9 @@ final class AppModel: ObservableObject {
         }
         batchTask = Task { [weak self] in
             guard let self else { return }
-            let limit = min(max(snapshot.concurrency, 1), 6)
+            // A throughput test can saturate the path and bias other nodes'
+            // latency. Test entire nodes serially whenever downloading.
+            let limit = snapshot.downloadEnabled ? 1 : min(max(snapshot.concurrency, 1), 6)
             var next = 0
             await withTaskGroup(of: (NodeEntry, ProbeResponse).self) { group in
                 func add(_ entry: NodeEntry) {
