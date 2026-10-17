@@ -59,10 +59,11 @@ final class AppModel: ObservableObject {
     }
     var totalBytes: Int64 { vault.measurements.reduce(0) { $0 + $1.downloadedBytes } }
 
-    func save() {
-        guard !vaultReadFailed else { return }
-        do { try Vault.save(vault) }
-        catch { notice = "保存失败：\(error.localizedDescription)" }
+    @discardableResult
+    func save() -> Bool {
+        guard !vaultReadFailed else { return false }
+        do { try Vault.save(vault); return true }
+        catch { notice = "保存失败：\(error.localizedDescription)"; return false }
     }
 
     func addSubscription(name: String, input: String, remote: Bool) async -> Bool {
@@ -74,7 +75,7 @@ final class AppModel: ObservableObject {
             if let error = parsed.error { notice = error; return false }
             guard let nodes = parsed.nodes, !nodes.isEmpty else { notice = "订阅中没有节点"; return false }
             vault.subscriptions.append(Subscription(name: name.isEmpty ? "我的订阅" : name, url: remote ? input : "", nodes: nodes))
-            save()
+            guard save() else { vault.subscriptions.removeLast(); return false }
             showImportNotice(parsed)
             return true
         } catch { notice = error.localizedDescription; return false }

@@ -17,6 +17,7 @@ final class SmokeTests: XCTestCase {
         editor.typeText("proxies:\n  - {name: Tokyo 01, type: ss, server: example.com, port: 443, cipher: aes-128-gcm, password: demo}\n  - {name: Singapore 02, type: trojan, server: example.org, port: 443, password: demo}\n")
         app.buttons["importSubscription"].tap()
         XCTAssertTrue(app.staticTexts["Tokyo 01"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.alerts.firstMatch.exists, app.alerts.firstMatch.debugDescription)
         XCTAssertTrue(app.staticTexts["Singapore 02"].exists)
         let download = app.switches["downloadToggle"]
         XCTAssertTrue(download.exists)

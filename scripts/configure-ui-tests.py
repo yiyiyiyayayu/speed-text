@@ -4,6 +4,7 @@ from pathlib import Path
 
 path = Path(__file__).resolve().parents[1] / "ios/project.yml"
 text = path.read_text()
+text = text.replace("        SWIFT_OBJC_BRIDGING_HEADER:", "        CODE_SIGN_ENTITLEMENTS: NodeScope/Simulator.entitlements\n        SWIFT_OBJC_BRIDGING_HEADER:")
 target = """  NodeScopeUITests:
     type: bundle.ui-testing
     platform: iOS

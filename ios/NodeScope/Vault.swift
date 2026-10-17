@@ -19,6 +19,7 @@ enum Vault {
         var value: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &value)
         if status == errSecSuccess, let data = value as? Data { return SymmetricKey(data: data) }
+        if status == errSecMissingEntitlement { throw VaultError.missingEntitlement }
         guard status == errSecItemNotFound, create else { throw VaultError.keyUnavailable }
         let newKey = SymmetricKey(size: .bits256)
         let data = newKey.withUnsafeBytes { Data($0) }
@@ -26,7 +27,9 @@ enum Vault {
             kSecAttrService as String: service, kSecAttrAccount as String: account,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
-        guard SecItemAdd(insert as CFDictionary, nil) == errSecSuccess else { throw VaultError.keyUnavailable }
+        let insertStatus = SecItemAdd(insert as CFDictionary, nil)
+        if insertStatus == errSecMissingEntitlement { throw VaultError.missingEntitlement }
+        guard insertStatus == errSecSuccess else { throw VaultError.keyUnavailable }
         return newKey
     }
 
@@ -52,6 +55,12 @@ enum Vault {
 
     enum VaultError: LocalizedError {
         case keyUnavailable
-        var errorDescription: String? { "无法读取本机加密密钥，请解锁设备后重试" }
+        case missingEntitlement
+        var errorDescription: String? {
+            switch self {
+            case .keyUnavailable: return "无法读取本机加密密钥，请解锁设备后重试"
+            case .missingEntitlement: return "签名缺少钥匙串权限，请在全能签中使用有效证书与描述文件重新签名后安装"
+            }
+        }
     }
 }
