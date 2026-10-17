@@ -1,18 +1,14 @@
 package engine
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/metacubex/mihomo/common/convert"
 	"github.com/metacubex/mihomo/log"
@@ -53,15 +49,31 @@ func ParseSubscription(input string) (result SubscriptionResult) {
 		}
 	}()
 	if len(input) > MaxSubscriptionBytes {
-		result.Error = "订阅超过 8 MiB 限制"
+		result.Error = subscriptionTooLargeMessage
 		return
 	}
 	input = strings.TrimSpace(strings.TrimPrefix(input, "\ufeff"))
-	var document struct {
-		Proxies []map[string]any `yaml:"proxies"`
+	if input == "" { result.Error = "订阅返回空内容，请检查订阅链接或稍后重试"; return }
+	lower := strings.ToLower(input)
+	if strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") {
+		result.Error = "订阅服务器返回了网页，请检查是否为订阅链接或需要登录验证"; return
 	}
+	var document subscriptionDocument
 	err := yaml.Unmarshal([]byte(input), &document)
 	mappings := document.Proxies
+	for _, name := range providerNames(document.Providers) {
+		provider := document.Providers[name]
+		if provider.Type == "inline" { mappings = append(mappings, provider.Payload...) }
+	}
+	if len(mappings) == 0 && len(document.Providers) > 0 {
+		result.Error = "此配置引用远程节点源，请通过订阅地址导入以加载完整节点"
+		return
+	}
+	if len(document.Providers) > 0 {
+		for _, provider := range document.Providers {
+			if provider.Type != "inline" { result.Warnings = append(result.Warnings, remoteSourcesNotLoadedWarning); break }
+		}
+	}
 	if len(mappings) == 0 {
 		mappings, _ = convert.ConvertsV2Ray([]byte(input))
 		// Converter intentionally ignores unknown URI lines. Report them.
@@ -79,12 +91,12 @@ func ParseSubscription(input string) (result SubscriptionResult) {
 		if err != nil {
 			result.Error = "无法识别订阅，请使用 Clash YAML 或分享链接订阅"
 		} else {
-			result.Error = "订阅中没有可导入的节点；远程 proxy-providers 请先转换为完整订阅"
+			result.Error = "订阅返回的内容中没有节点，请确认使用了正确的订阅地址与格式"
 		}
 		return
 	}
 	if len(mappings) > MaxNodes {
-		result.Error = "单个订阅最多支持 2000 个节点"
+		result.Error = tooManyNodesMessage
 		return
 	}
 	seen := map[string]bool{}
@@ -124,9 +136,7 @@ func ParseSubscription(input string) (result SubscriptionResult) {
 			result.Warnings = append(result.Warnings, "部分节点配置关闭了节点服务器证书验证")
 		}
 	}
-	if len(result.Warnings) > 1 {
-		result.Warnings = result.Warnings[:1]
-	}
+	result.Warnings = uniqueStrings(result.Warnings)
 	if len(result.Nodes) == 0 {
 		result.Error = "没有受支持的节点，请检查订阅格式"
 	}
@@ -141,35 +151,3 @@ func validateHTTPS(raw string) error {
 	return nil
 }
 
-func FetchSubscription(raw string) SubscriptionResult {
-	if err := validateHTTPS(raw); err != nil {
-		return SubscriptionResult{Error: err.Error()}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
-	req.Header.Set("User-Agent", "NodeScope/1.0 Clash")
-	client := &http.Client{Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return errors.New("too many redirects")
-		}
-		return validateHTTPS(req.URL.String())
-	}}
-	defer client.CloseIdleConnections()
-	response, err := client.Do(req)
-	if err != nil {
-		return SubscriptionResult{Error: "订阅下载失败，请检查地址和网络"}
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return SubscriptionResult{Error: fmt.Sprintf("订阅服务器返回 HTTP %d", response.StatusCode)}
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, MaxSubscriptionBytes+1))
-	if err != nil {
-		return SubscriptionResult{Error: "订阅下载中断"}
-	}
-	if len(body) > MaxSubscriptionBytes {
-		return SubscriptionResult{Error: "订阅超过 8 MiB 限制"}
-	}
-	return ParseSubscription(string(body))
-}
