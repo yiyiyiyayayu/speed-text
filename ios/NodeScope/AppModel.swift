@@ -29,6 +29,7 @@ final class AppModel: ObservableObject {
     @Published var importing = false
     @Published var vaultReadFailed = false
 
+    private let probe: @Sendable (Int64, String, String) -> ProbeResponse
     private let persist: (VaultData) throws -> Void
     private let defaults: UserDefaults
     private let monitor = NWPathMonitor()
@@ -37,7 +38,11 @@ final class AppModel: ObservableObject {
     private var batchTask: Task<Void, Never>?
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
 
-    init(initialVault: VaultData? = nil, observeNetwork: Bool = true, defaults: UserDefaults = .standard, persist: @escaping (VaultData) throws -> Void = Vault.save) {
+    init(initialVault: VaultData? = nil, observeNetwork: Bool = true, defaults: UserDefaults = .standard, persist: @escaping (VaultData) throws -> Void = Vault.save,
+         probe: @escaping @Sendable (Int64, String, String) -> ProbeResponse = { run, config, options in
+             (try? NativeCore.test(run: run, config: config, options: options)) ?? ProbeResponse(error: "测速核心返回异常")
+         }) {
+        self.probe = probe
         self.persist = persist
         self.defaults = defaults
         if let data = defaults.data(forKey: "testSettings.v1"),
@@ -278,14 +283,14 @@ final class AppModel: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = true
         batchTask = Task { [weak self] in
             guard let self else { return }
+            let probe = self.probe
             let limit = snapshot.downloadEnabled ? 1 : min(max(snapshot.concurrency, 1), 6)
             var next = 0
             await withTaskGroup(of: (NodeEntry, ProbeResponse).self) { group in
                 func add(_ entry: NodeEntry) {
                     group.addTask {
                         let response = await Task.detached(priority: .userInitiated) {
-                            (try? NativeCore.test(run: id, config: entry.node.config, options: snapshot.optionsJSON))
-                                ?? ProbeResponse(error: "测速核心返回异常")
+                            probe(id, entry.node.config, snapshot.optionsJSON)
                         }.value
                         return (entry, response)
                     }

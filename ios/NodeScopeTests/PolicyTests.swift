@@ -106,4 +106,45 @@ final class PolicyTests: XCTestCase {
         let reloaded = AppModel(initialVault: model.vault, observeNetwork: false, defaults: defaults, persist: { _ in })
         XCTAssertTrue(reloaded.preferences.excludedRegions.contains("jp"))
     }
+    @MainActor
+    func testBackgroundPausePersistsQueueAndResumesOnlyUnfinishedEntries() async throws {
+        let item = entry("Tokyo")
+        let profile = NetworkProfile(name: "Home", kind: .wifi)
+        var vault = VaultData()
+        vault.subscriptions = [item.subscription]; vault.networkProfiles = [profile]
+        vault.activeProfiles["wifi"] = profile.id
+        let suite = "NodeScope.background." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let started = expectation(description: "probe started")
+        started.assertForOverFulfill = false
+        let gate = DispatchSemaphore(value: 0)
+        let result = ProbeResponse(metrics: measurement(item, profileID: profile.id, score: 80).metrics, samples: [30])
+        let model = AppModel(initialVault: vault, observeNetwork: false, defaults: defaults, persist: { _ in }, probe: { _, _, _ in
+            started.fulfill()
+            _ = gate.wait(timeout: .now() + 5)
+            return result
+        })
+        model.updateNetwork(kind: .wifi, satisfied: true, signature: "wifi")
+        model.preferences.continueInBackground = false
+        model.start()
+        await fulfillment(of: [started], timeout: 3)
+        XCTAssertTrue(model.running)
+        model.sceneChanged(.background)
+        XCTAssertTrue(model.stopping)
+        XCTAssertEqual(model.vault.pausedBatch?.remainingEntryIDs, [item.id])
+        gate.signal()
+        for _ in 0..<200 where model.running { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(model.running)
+        XCTAssertTrue(model.vault.measurements.isEmpty) // A result racing with pause must not be scored.
+        model.sceneChanged(.active)
+        gate.signal()
+        model.resume()
+        for _ in 0..<200 where model.running { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(model.running)
+        XCTAssertNil(model.vault.pausedBatch)
+        XCTAssertEqual(model.vault.measurements.count, 1)
+        XCTAssertEqual(model.vault.measurements.first?.networkProfileID, profile.id)
+    }
+
 }

@@ -57,13 +57,15 @@ struct NodeRegion: Identifiable {
         .init(id: "ca", title: "加拿大", words: ["加拿大", "🇨🇦", "canada", "toronto"], codes: ["ca", "can"]),
         .init(id: "au", title: "澳大利亚", words: ["澳大利亚", "澳洲", "🇦🇺", "australia", "sydney"], codes: ["au", "aus"])
     ]
+    private static let codeExpressions: [String: NSRegularExpression] = Dictionary(uniqueKeysWithValues: all.map { region in
+        let codes = region.codes.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+        return (region.id, try! NSRegularExpression(pattern: "(?<![a-z])(?:" + codes + ")(?![a-z])"))
+    })
     static func matches(name: String) -> [NodeRegion] {
         let lower = name.lowercased()
         // Bound abbreviations to avoid e.g. matching US inside "Australia" or HK inside a hostname.
         return all.filter { region in
-            region.words.contains { lower.contains($0) } || region.codes.contains { code in
-                lower.range(of: "(?<![a-z])" + code + "(?![a-z])", options: .regularExpression) != nil
-            }
+            region.words.contains { lower.contains($0) } || codeExpressions[region.id]?.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)) != nil
         }
     }
 }
