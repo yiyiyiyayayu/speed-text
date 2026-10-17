@@ -18,6 +18,9 @@ jobs:
     name: Core tests
     runs-on: ubuntu-latest
     steps:
+      - name: Select Xcode with iOS 26 SDK
+        if: runner.os == 'macOS'
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
@@ -36,6 +39,9 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 35
     steps:
+      - name: Select Xcode with iOS 26 SDK
+        if: runner.os == 'macOS'
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:

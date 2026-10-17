@@ -35,6 +35,8 @@ targets:
         CFBundleShortVersionString: '1.1.0'
         CFBundleVersion: '3'
         UILaunchScreen: {}
+        UIBackgroundModes: [processing]
+        BGTaskSchedulerPermittedIdentifiers: ['app.nodescope.speedtest.probe.*']
         UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]

@@ -12,9 +12,9 @@ struct SettingsView: View {
                     Text("在底部“网络”页建立与切换移动、电信等网络档案，各自保留历史和推荐。").font(.caption).foregroundStyle(.secondary)
                 }
                 Section {
-                    Toggle("允许短时后台续测", isOn: $model.preferences.continueInBackground)
+                    Toggle("允许后台续测", isOn: $model.preferences.continueInBackground)
                 } header: { Text("后台测速") } footer: {
-                    Text("切出 App 或锁屏后，尽量在系统分配的后台时间内继续；时长由 iOS 决定。时间到会取消当前节点并保存剩余队列，回到前台后手动继续。不开启时，进入后台即暂停。无法保证长时间后台运行，也不会定时自动测速。")
+                    Text("iOS 26 及以上优先申请持续后台任务，系统会展示进度并允许取消；未获准时退回短时续测。旧系统使用短时后台时间。系统终止任务时取消当前节点、保存队列，回前台手动继续。不开启时进入后台即暂停。不保证完成全部节点，不会排队等待以后自动启动，也不会定时测速。")
                 }
                 Section {
                     Toggle("下载测速", isOn: $model.settings.downloadEnabled)

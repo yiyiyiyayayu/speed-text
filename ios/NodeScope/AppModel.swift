@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published var showExcluded = false
     @Published var networkKind = NetworkKind.other
     @Published var appInBackground = false
+    @Published var backgroundStatus = "前台测速"
     @Published var selectedGroup: UUID?
     @Published var query = ""
     @Published var running = false
@@ -281,6 +282,20 @@ final class AppModel: ObservableObject {
         runID = id; running = true; stopping = false; completed = 0; total = entries.count
         pending = Set(entries.map(\.id))
         UIApplication.shared.isIdleTimerDisabled = true
+        backgroundStatus = preferences.continueInBackground ? "短时后台续测" : "后台即暂停"
+        if preferences.continueInBackground {
+            if #available(iOS 26.0, *) {
+                let requested = ContinuedRunCoordinator.shared.begin(total: entries.count, onReady: { [weak self] in
+                    guard let self, self.running, !self.stopping else { ContinuedRunCoordinator.shared.finish(success: false); return }
+                    self.backgroundStatus = "系统持续后台任务已启用"
+                    self.endBackgroundContinuation()
+                }, onExpiration: { [weak self] in
+                    self?.pause(reason: "系统已结束后台任务，未完成节点已保存，回到前台后可继续。")
+                    self?.endBackgroundContinuation()
+                })
+                backgroundStatus = requested ? "正在申请持续后台任务" : "短时续测（系统未允许持续任务）"
+            }
+        }
         batchTask = Task { [weak self] in
             guard let self else { return }
             let probe = self.probe
@@ -300,6 +315,7 @@ final class AppModel: ObservableObject {
                     self.pending.remove(entry.id)
                     if response.cancelled != true && !self.stopping {
                         self.completed += 1
+                        if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.updateProgress(completed: self.completed, total: self.total) }
                         let fallback = Metrics(attempts: 0, successes: 0, failureRate: 1, medianMS: 0, p95MS: 0, jitterMS: 0, score: 0, confidence: 0)
                         let measurement = Measurement(batchID: batchID, subscriptionID: entry.subscription.id, nodeID: entry.node.id,
                             network: profile.name, networkProfileID: profile.id, latencyURL: snapshot.latencyURL, metrics: response.metrics ?? fallback,
@@ -323,6 +339,8 @@ final class AppModel: ObservableObject {
             self.runID = nil; self.running = false; self.stopping = false; self.pending = []
             if self.vault.pausedBatch?.remainingEntryIDs.isEmpty == true { self.vault.pausedBatch = nil }
             self.save()
+            if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.finish(success: self.completed == self.total) }
+            self.backgroundStatus = self.vault.pausedBatch == nil ? "前台测速" : "已保存未完成队列"
             UIApplication.shared.isIdleTimerDisabled = false
             self.endBackgroundContinuation()
             self.batchTask = nil
@@ -334,17 +352,22 @@ final class AppModel: ObservableObject {
         guard let runID else { return }
         vault.pausedBatch = nil; save()
         stopping = true; NSCancelRun(runID)
+        if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.finish(success: false) }
     }
     func pause(reason: String) {
         guard let runID else { return }
         stopping = true; NSCancelRun(runID)
+        if #available(iOS 26.0, *) { ContinuedRunCoordinator.shared.finish(success: false) }
         save(); notice = reason
     }
     func sceneChanged(_ phase: ScenePhase) {
         if phase == .background {
             appInBackground = true
             guard running else { return }
-            if preferences.continueInBackground { beginBackgroundContinuation() }
+            if preferences.continueInBackground {
+                if #available(iOS 26.0, *), ContinuedRunCoordinator.shared.isActive { return }
+                beginBackgroundContinuation()
+            }
             else { pause(reason: "已保存未完成队列，回到前台可继续测速。") }
         } else if phase == .active {
             appInBackground = false

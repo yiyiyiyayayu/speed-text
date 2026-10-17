@@ -173,7 +173,7 @@ struct NodesView: View {
                 HStack {
                     Text(model.stopping ? "正在停止…" : "测试中 · \(model.completed)/\(model.total)").font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Text("每节点 \(model.settings.rounds) 轮").font(.caption).foregroundStyle(.secondary)
+                    Text(model.backgroundStatus).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             } else {
                 HStack {
