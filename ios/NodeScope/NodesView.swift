@@ -137,14 +137,19 @@ struct NodesView: View {
                     Text("每节点 \(model.settings.rounds) 轮").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                Toggle(isOn: $model.settings.downloadEnabled) {
+                HStack {
                     HStack(spacing: 7) {
                         Image(systemName: "arrow.down.circle")
                         Text("同时测下载").font(.subheadline)
                         Text(model.settings.downloadEnabled ? "每节点最多读取 \(model.settings.downloadMiB) MiB" : "已关闭 · 自动记忆")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
-                }.toggleStyle(SwitchToggleStyle(tint: Theme.accent)).accessibilityIdentifier("downloadToggle")
+                    Spacer(minLength: 4)
+                    Toggle("同时测下载", isOn: $model.settings.downloadEnabled)
+                        .labelsHidden().fixedSize()
+                        .toggleStyle(SwitchToggleStyle(tint: Theme.accent))
+                        .accessibilityIdentifier("downloadToggle")
+                }
             }
             Button {
                 if model.running { model.stop() } else { model.start() }
