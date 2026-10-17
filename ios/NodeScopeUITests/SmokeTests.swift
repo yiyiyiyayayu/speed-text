@@ -1,6 +1,8 @@
 import XCTest
 
 final class SmokeTests: XCTestCase {
+    override func setUpWithError() throws { continueAfterFailure = false }
+
     func testImportGroupAndDownloadPreferenceSurvivesRelaunch() throws {
         let app = XCUIApplication()
         app.launch()

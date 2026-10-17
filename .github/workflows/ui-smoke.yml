@@ -27,7 +27,9 @@ jobs:
           cd ios
           xcodegen generate
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
-          xcodebuild test -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath ../build/UITests.xcresult CODE_SIGNING_ALLOWED=NO
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcodebuild test -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath ../build/UITests.xcresult -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 180 CODE_SIGNING_ALLOWED=NO
       - name: Export screenshots
         if: always()
         run: xcrun xcresulttool export attachments --path build/UITests.xcresult --output-path dist/ui-screenshots || true
