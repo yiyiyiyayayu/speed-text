@@ -157,6 +157,8 @@ final class AppModel: ObservableObject {
                 if (x > 0) != (y > 0) { return x > 0 }
                 if x != y { return x < y }
             case .stability:
+                let hasA = (a.latest?.metrics.successes ?? 0) > 0, hasB = (b.latest?.metrics.successes ?? 0) > 0
+                if hasA != hasB { return hasA }
                 let x = a.latest?.metrics.failureRate ?? 1, y = b.latest?.metrics.failureRate ?? 1
                 if x != y { return x < y }
                 let xj = a.latest?.metrics.jitterMS ?? .infinity, yj = b.latest?.metrics.jitterMS ?? .infinity

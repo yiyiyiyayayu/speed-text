@@ -40,6 +40,7 @@ struct NodesView: View {
                     Button { exportURL = model.exportCSV(); showExport = exportURL != nil } label: { Image(systemName: "square.and.arrow.up") }
                         .disabled(model.vault.measurements.isEmpty)
                     Button { adding = true } label: { Image(systemName: "plus") }.disabled(model.running || model.importing)
+                        .accessibilityIdentifier("addSubscription")
                 }
             }
             .safeAreaInset(edge: .bottom) { testBar }
@@ -143,7 +144,7 @@ struct NodesView: View {
                         Text(model.settings.downloadEnabled ? "每节点最多读取 \(model.settings.downloadMiB) MiB" : "已关闭 · 自动记忆")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
-                }.toggleStyle(SwitchToggleStyle(tint: Theme.accent))
+                }.toggleStyle(SwitchToggleStyle(tint: Theme.accent)).accessibilityIdentifier("downloadToggle")
             }
             Button {
                 if model.running { model.stop() } else { model.start() }
@@ -187,8 +188,8 @@ struct NodeCard: View {
             if let record = row.latest {
                 HStack(spacing: 0) {
                     metric("延迟", value: record.metrics.medianMS.ms, unit: "ms")
-                    metric("抖动", value: record.metrics.successes > 0 ? record.metrics.jitterMS.ms : "—", unit: "ms")
-                    metric("失败率", value: String(format: "%.0f", record.metrics.failureRate * 100), unit: "%")
+                    metric("抖动", value: record.metrics.successes > 0 ? String(format: "%.0f", record.metrics.jitterMS) : "—", unit: "ms")
+                    metric("失败率", value: record.metrics.attempts > 0 ? String(format: "%.0f", record.metrics.failureRate * 100) : "—", unit: "%")
                     metric("评分", value: row.score.oneDecimal, unit: "")
                 }
                 if let error = record.error { Text(error).font(.caption).foregroundStyle(.orange) }
@@ -232,7 +233,7 @@ struct NodeDetailView: View {
                     Section("最近一次 · \(latest.network)") {
                         LabeledContent("延迟中位数", value: "\(latest.metrics.medianMS.ms) ms")
                         LabeledContent("P95 延迟", value: "\(latest.metrics.p95MS.ms) ms")
-                        LabeledContent("抖动（MAD）", value: "\(latest.metrics.jitterMS.ms) ms")
+                        LabeledContent("抖动（MAD）", value: latest.metrics.successes > 0 ? "\(String(format: "%.0f", latest.metrics.jitterMS)) ms" : "—")
                         LabeledContent("成功样本", value: "\(latest.metrics.successes) / \(latest.metrics.attempts)")
                         LabeledContent("单次评分", value: latest.metrics.score.oneDecimal)
                         LabeledContent("可靠性置信下界", value: "\(Int(latest.metrics.confidence * 100))%")

@@ -56,10 +56,11 @@ struct AddSubscriptionView: View {
     @State private var name = ""
     @State private var input = ""
     @State private var remote = true
+    @State private var importError: String?
     var body: some View {
         NavigationStack {
             Form {
-                Section("分组名称") { TextField("例如：主力订阅", text: $name) }
+                Section("分组名称") { TextField("例如：主力订阅", text: $name).accessibilityIdentifier("subscriptionName") }
                 Section {
                     Picker("导入方式", selection: $remote) {
                         Text("订阅地址").tag(true)
@@ -71,6 +72,7 @@ struct AddSubscriptionView: View {
                     } else {
                         TextEditor(text: $input).font(.system(.caption, design: .monospaced)).frame(minHeight: 220)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("subscriptionContent")
                     }
                 } footer: {
                     Text(remote ? "仅支持 HTTPS 订阅地址。支持 Clash YAML、Base64 订阅及常见节点分享链接。" : "可粘贴 Clash YAML 或一行一个的节点链接。远程 proxy-providers 不会自动加载。")
@@ -88,11 +90,16 @@ struct AddSubscriptionView: View {
                     Button("导入") {
                         Task {
                             if await model.addSubscription(name: name.trimmingCharacters(in: .whitespacesAndNewlines), input: input.trimmingCharacters(in: .whitespacesAndNewlines), remote: remote) { dismiss() }
+                            else { importError = model.notice ?? "导入失败"; model.notice = nil }
                         }
                     }.disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.importing || model.running || model.vaultReadFailed)
+                        .accessibilityIdentifier("importSubscription")
                 }
             }
             .interactiveDismissDisabled(model.importing)
+            .alert("导入失败", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+                Button("知道了", role: .cancel) { importError = nil }
+            } message: { Text(importError ?? "") }
         }
     }
 }

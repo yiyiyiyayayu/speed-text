@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 
 root = pathlib.Path(__file__).resolve().parents[1]
+subprocess.run(["go", "mod", "download"], cwd=root / "core", check=True)
 raw = subprocess.check_output(["go", "list", "-m", "-json", "all"], cwd=root / "core", text=True)
 decoder = json.JSONDecoder()
 modules = []

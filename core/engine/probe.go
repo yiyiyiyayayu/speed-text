@@ -112,6 +112,7 @@ func clientFor(proxy C.Proxy, timeout time.Duration) *http.Client {
 
 func TestNode(id int64, config string, options Options) (result TestResult) {
 	result.Samples = []float64{}
+	result.Metrics.FailureRate = 1
 	defer func() {
 		if recover() != nil {
 			result.Error = "节点协议初始化失败"

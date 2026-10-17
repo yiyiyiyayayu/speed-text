@@ -1,0 +1,40 @@
+name: iOS UI smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.7'
+          cache-dependency-path: core/go.sum
+      - run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Build simulator core
+        run: |
+          bash scripts/build-core.sh iphonesimulator "$(uname -m)"
+          python3 scripts/third-party-notices.py
+      - name: Generate UI test target and run
+        run: |
+          python3 scripts/configure-ui-tests.py
+          cd ios
+          xcodegen generate
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
+          xcodebuild test -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath ../build/UITests.xcresult CODE_SIGNING_ALLOWED=NO
+      - name: Export screenshots
+        if: always()
+        run: xcrun xcresulttool export attachments --path build/UITests.xcresult --output-path dist/ui-screenshots || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: NodeScope-UI-test-results
+          path: |
+            dist/ui-screenshots
+            build/UITests.xcresult
