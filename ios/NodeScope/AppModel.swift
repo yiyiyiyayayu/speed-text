@@ -135,6 +135,8 @@ final class AppModel: ObservableObject {
         let eligible = rows.filter { row in
             guard row.fresh, !pending.contains(row.id), let m = row.latest?.metrics else { return false }
             return row.latest?.error == nil && m.attempts >= 6 && m.successes > 0 && m.failureRate <= 0.10
+                && m.jitterMS <= max(30, m.medianMS * 0.35)
+                && m.p95MS <= max(m.medianMS * 2, m.medianMS + 100)
         }
         if let bestScore = eligible.map(\.score).max(), let bestMedian = eligible.compactMap({ $0.latest?.metrics.medianMS }).min() {
             for index in rows.indices {
