@@ -26,9 +26,13 @@ jobs:
       - run: go test -race ./... && go vet ./...
         working-directory: core
 
+  ios-tests:
+    name: iOS policy and UI tests
+    uses: ./.github/workflows/ui-smoke.yml
+
   build:
     name: Unsigned IPA for ESign
-    needs: core-tests
+    needs: [core-tests, ios-tests]
     runs-on: macos-15
     timeout-minutes: 35
     steps:

@@ -3,9 +3,11 @@ import SwiftUI
 @main
 struct NodeScopeApp: App {
     @StateObject private var model = AppModel()
+    @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
             RootView().environmentObject(model).tint(Theme.accent)
+                .onChange(of: scenePhase) { model.sceneChanged($0) }
                 .alert("提示", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
                     Button("知道了", role: .cancel) { model.notice = nil }
                 } message: { Text(model.notice ?? "") }
@@ -26,6 +28,7 @@ struct RootView: View {
         TabView {
             NodesView().tabItem { Label("测速", systemImage: "waveform.path.ecg") }
             SubscriptionsView().tabItem { Label("订阅", systemImage: "square.stack.3d.up") }
+            NetworksView().tabItem { Label("网络", systemImage: "wifi") }
             SettingsView().tabItem { Label("设置", systemImage: "slider.horizontal.3") }
         }
     }

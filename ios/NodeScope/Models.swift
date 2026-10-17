@@ -52,6 +52,7 @@ struct Measurement: Codable, Identifiable, Sendable {
     var nodeID: String
     var date = Date()
     var network: String
+    var networkProfileID: UUID?
     var latencyURL: String
     var metrics: Metrics
     var samples: [Double]
@@ -97,6 +98,20 @@ struct TestSettings: Codable, Sendable {
 struct VaultData: Codable {
     var subscriptions: [Subscription] = []
     var measurements: [Measurement] = []
+    var networkProfiles: [NetworkProfile] = []
+    var activeProfiles: [String: UUID] = [:]
+    var pausedBatch: PausedBatch?
+
+    init() {}
+    enum CodingKeys: String, CodingKey { case subscriptions, measurements, networkProfiles, activeProfiles, pausedBatch }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        subscriptions = try values.decodeIfPresent([Subscription].self, forKey: .subscriptions) ?? []
+        measurements = try values.decodeIfPresent([Measurement].self, forKey: .measurements) ?? []
+        networkProfiles = try values.decodeIfPresent([NetworkProfile].self, forKey: .networkProfiles) ?? []
+        activeProfiles = try values.decodeIfPresent([String: UUID].self, forKey: .activeProfiles) ?? [:]
+        pausedBatch = try values.decodeIfPresent(PausedBatch.self, forKey: .pausedBatch)
+    }
 }
 
 struct NodeEntry: Identifiable {

@@ -6,6 +6,16 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("筛选与网络") {
+                    NavigationLink("地区、节点与 IP 排除") { ExclusionsView() }
+                    LabeledContent("当前网络档案", value: model.activeNetworkName)
+                    Text("在底部“网络”页建立与切换移动、电信等网络档案，各自保留历史和推荐。").font(.caption).foregroundStyle(.secondary)
+                }
+                Section {
+                    Toggle("允许短时后台续测", isOn: $model.preferences.continueInBackground)
+                } header: { Text("后台测速") } footer: {
+                    Text("切出 App 或锁屏后，尽量在系统分配的后台时间内继续；时长由 iOS 决定。时间到会取消当前节点并保存剩余队列，回到前台后手动继续。不开启时，进入后台即暂停。无法保证长时间后台运行，也不会定时自动测速。")
+                }
                 Section {
                     Toggle("下载测速", isOn: $model.settings.downloadEnabled)
                     Toggle("下载测速仅限 Wi-Fi", isOn: $model.settings.wifiOnly)
@@ -57,10 +67,10 @@ struct SettingsView: View {
                     LabeledContent("已保留的下载读取量", value: ByteCountFormatter.string(fromByteCount: model.totalBytes, countStyle: .binary))
                     Button("清空测速记录", role: .destructive) { clearing = true }.disabled(model.running)
                 } header: { Text("本机数据") } footer: {
-                    Text("每节点保留最近 30 次记录，总上限 10,000 条。此处流量仅汇总已保留的完整测试记录，不是累计账单；取消、失败、订阅导入和协议开销可能未计入。订阅和凭据仅在本机加密保存。")
+                    Text("每节点、每网络档案保留最近 30 次记录，总上限 10,000 条。此处流量仅汇总已保留的完整测试记录，不是累计账单；取消、失败、订阅导入和协议开销可能未计入。订阅和凭据仅在本机加密保存。")
                 }
                 Section {
-                    LabeledContent("版本", value: "1.0.1")
+                    LabeledContent("版本", value: "1.1.0")
                     Link("项目源码与使用说明", destination: URL(string: "https://github.com/yiyiyiyayayu/speed-text")!)
                     NavigationLink("开源许可") { LicensesView() }
                 }
@@ -83,13 +93,13 @@ struct AlgorithmView: View {
                 Text("评分以延迟占 50%、P95 占 30%、抖动占 20% 为基础，再乘以成功率的三次方和样本置信修正。下载速度独立展示，不影响稳定性排名。")
             }
             Section("推荐哪一档") {
-                Text("仅使用当前网络类型、相同测试地址、30 分钟内的结果。至少完成 6 轮、失败率不超过 10%。先排除自身 P95 超过中位延迟 2 倍或加 100 ms（取较大值）、抖动超过 30 ms 或中位延迟 35%（取较大值）的节点。再从稳定候选中选出分数距最高分不超过 8 分、P95 不高于最低中位延迟 1.6 倍或加 60 ms（取较大值）的档位。")
+                Text("仅使用当前网络档案、相同测试地址、30 分钟内的结果。至少完成 6 轮、失败率不超过 10%。先排除自身 P95 超过中位延迟 2 倍或加 100 ms（取较大值）、抖动超过 30 ms 或中位延迟 35%（取较大值）的节点。再从稳定候选中选出分数距最高分不超过 8 分、P95 不高于最低中位延迟 1.6 倍或加 60 ms（取较大值）的档位。")
                 Text("排序评分 = 本次评分 × 70% + 最近 24 小时最多 12 次同类历史评分均值 × 30%。本次全部失败时评分直接归零。")
             }
             Section("样本越多，结论越可靠") {
                 Text("样本较少时显示「初步推荐」。至少 3 次测试、合计 24 个样本，且记录跨度不少于 10 分钟，才显示「推荐」。这是观测结果，不是未来稳定性的保证。")
                 Text("可靠性置信下界使用 95% Wilson 区间。短时间内的样本可能相关，这一指标仅用于样本量修正，不能解释为长期在线率保证。")
-                Text("系统仅识别 Wi-Fi / 蜂窝等网络类型，无法判断是否换了另一条 Wi-Fi 或是否存在其他 VPN。切换实际网络后请重新测试。")
+                Text("系统自动识别 Wi-Fi / 蜂窝类型，具体 Wi-Fi 与运营商由你选择网络档案。不同档案的记录不参与同一推荐。系统无法确认同类型 Wi-Fi 切换或其他 VPN，请先确认档案再测速。")
             }
         }.navigationTitle("评分算法").navigationBarTitleDisplayMode(.inline)
     }

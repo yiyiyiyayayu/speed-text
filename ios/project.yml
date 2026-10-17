@@ -10,8 +10,8 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     ENABLE_BITCODE: NO
     ENABLE_DEBUG_DYLIB: NO
-    MARKETING_VERSION: '1.0.1'
-    CURRENT_PROJECT_VERSION: '2'
+    MARKETING_VERSION: '1.1.0'
+    CURRENT_PROJECT_VERSION: '3'
 targets:
   NodeScope:
     type: application
@@ -32,8 +32,8 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: 节点测速
-        CFBundleShortVersionString: '1.0.1'
-        CFBundleVersion: '2'
+        CFBundleShortVersionString: '1.1.0'
+        CFBundleVersion: '3'
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]

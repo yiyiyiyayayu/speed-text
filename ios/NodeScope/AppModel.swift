@@ -7,8 +7,14 @@ import UIKit
 final class AppModel: ObservableObject {
     @Published var vault = VaultData()
     @Published var settings: TestSettings {
-        didSet { if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "testSettings.v1") } }
+        didSet { if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "testSettings.v1") } }
     }
+    @Published var preferences: TestPreferences {
+        didSet { if let data = try? JSONEncoder().encode(preferences) { defaults.set(data, forKey: "testPreferences.v2") } }
+    }
+    @Published var showExcluded = false
+    @Published var networkKind = NetworkKind.other
+    @Published var appInBackground = false
     @Published var selectedGroup: UUID?
     @Published var query = ""
     @Published var running = false
@@ -23,46 +29,107 @@ final class AppModel: ObservableObject {
     @Published var importing = false
     @Published var vaultReadFailed = false
 
+    private let persist: (VaultData) throws -> Void
+    private let defaults: UserDefaults
     private let monitor = NWPathMonitor()
+    private var networkSignature: String?
     private var runID: Int64?
     private var batchTask: Task<Void, Never>?
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
 
-    init() {
-        if let data = UserDefaults.standard.data(forKey: "testSettings.v1"),
+    init(initialVault: VaultData? = nil, observeNetwork: Bool = true, defaults: UserDefaults = .standard, persist: @escaping (VaultData) throws -> Void = Vault.save) {
+        self.persist = persist
+        self.defaults = defaults
+        if let data = defaults.data(forKey: "testSettings.v1"),
            let saved = try? JSONDecoder().decode(TestSettings.self, from: data) { settings = saved }
         else { settings = TestSettings() }
-        do { vault = try Vault.load() }
-        catch { vaultReadFailed = true; notice = "本地数据未能解密，已暂停写入以保护原数据。请解锁设备后重启 App。" }
+        if let data = defaults.data(forKey: "testPreferences.v2"),
+           let saved = try? JSONDecoder().decode(TestPreferences.self, from: data) { preferences = saved }
+        else { preferences = TestPreferences() }
+        if let initialVault { vault = initialVault }
+        else {
+            do { vault = try Vault.load() }
+            catch { vaultReadFailed = true; notice = "本地数据未能解密，已暂停写入以保护原数据。请解锁设备后重启 App。" }
+        }
+        guard observeNetwork else { return }
         monitor.pathUpdateHandler = { [weak self] path in
-            let name = path.usesInterfaceType(.wifi) ? "Wi-Fi" : path.usesInterfaceType(.cellular) ? "蜂窝网络" : "其他网络"
+            let kind: NetworkKind = path.usesInterfaceType(.wifi) ? .wifi : path.usesInterfaceType(.cellular) ? .cellular : .other
             let satisfied = path.status == .satisfied
-            let wifi = path.usesInterfaceType(.wifi)
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.running && (self.network != name || !satisfied) {
-                    self.stop()
-                    self.notice = "网络发生变化，已停止本次测速。请在网络稳定后重新测试。"
-                }
-                self.network = name; self.online = satisfied; self.onWiFi = wifi
-            }
+            // A gateway/interface change can detect some same-type switches. This is NOT a Wi-Fi identity.
+            let signature = path.availableInterfaces.map { $0.name }.sorted().joined(separator: ",")
+                + path.gateways.map { String(describing: $0) }.sorted().joined(separator: ",")
+                + String(path.isExpensive) + String(path.isConstrained)
+            Task { @MainActor [weak self] in self?.updateNetwork(kind: kind, satisfied: satisfied, signature: signature) }
         }
         monitor.start(queue: DispatchQueue(label: "app.nodescope.network"))
     }
+
+    var activeProfile: NetworkProfile? {
+        guard let id = vault.activeProfiles[networkKind.rawValue] else { return nil }
+        return vault.networkProfiles.first { $0.id == id && $0.kind == networkKind }
+    }
+    var activeNetworkName: String { activeProfile?.name ?? networkKind.title }
+
+    func updateNetwork(kind: NetworkKind, satisfied: Bool, signature: String) {
+        if running && (networkKind != kind || !satisfied || (networkSignature != nil && networkSignature != signature)) {
+            pause(reason: "网络发生变化，已保存未完成队列。请确认网络档案后继续。")
+        }
+        networkKind = kind; network = kind.title; online = satisfied; onWiFi = kind == .wifi
+        networkSignature = signature
+        if satisfied && activeProfile == nil && !vaultReadFailed {
+            let profile = vault.networkProfiles.first { $0.kind == kind } ?? NetworkProfile(name: kind.title + "（请命名）", kind: kind)
+            if !vault.networkProfiles.contains(where: { $0.id == profile.id }) { vault.networkProfiles.append(profile) }
+            vault.activeProfiles[kind.rawValue] = profile.id
+            save()
+        }
+    }
+
+    @discardableResult
+    func createProfile(name: String, kind: NetworkKind) -> Bool {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty, !running, !vaultReadFailed else { return false }
+        let profile = NetworkProfile(name: String(cleaned.prefix(50)), kind: kind)
+        vault.networkProfiles.append(profile)
+        if kind == networkKind { vault.activeProfiles[kind.rawValue] = profile.id }
+        return save()
+    }
+    func selectProfile(_ profile: NetworkProfile) {
+        guard !running, profile.kind == networkKind, !vaultReadFailed else { return }
+        vault.activeProfiles[networkKind.rawValue] = profile.id; save()
+    }
+    func renameProfile(_ profile: NetworkProfile, name: String) {
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !running, !cleaned.isEmpty, let i = vault.networkProfiles.firstIndex(where: { $0.id == profile.id }) else { return }
+        vault.networkProfiles[i].name = String(cleaned.prefix(50)); save()
+    }
+    func records(profileID: UUID?) -> [Measurement] {
+        vault.measurements.filter { $0.networkProfileID == profileID }.sorted { $0.date > $1.date }
+    }
+    func networkName(for record: Measurement) -> String {
+        if let id = record.networkProfileID, let profile = vault.networkProfiles.first(where: { $0.id == id }) { return profile.name }
+        return record.network + (record.networkProfileID == nil ? " · 旧版未分网络" : "")
+    }
+    func excludeNode(_ entry: NodeEntry) { guard !running else { return }; preferences.excludedNodes.insert(entry.id) }
+    func includeNode(_ entry: NodeEntry) { guard !running else { return }; preferences.excludedNodes.remove(entry.id) }
+    func excludeServer(_ entry: NodeEntry) { guard !running else { return }; preferences.excludedServers.insert(TestPreferences.normalizedServer(entry.node.server)) }
+
 
     var allEntries: [NodeEntry] {
         vault.subscriptions.flatMap { subscription in subscription.nodes.map { NodeEntry(subscription: subscription, node: $0) } }
     }
     var groupEntries: [NodeEntry] { allEntries.filter { selectedGroup == nil || $0.subscription.id == selectedGroup } }
-    var visibleEntries: [NodeEntry] {
-        groupEntries.filter { query.isEmpty || $0.node.name.localizedCaseInsensitiveContains(query) || $0.node.kind.localizedCaseInsensitiveContains(query) }
+    var matchingEntries: [NodeEntry] {
+        groupEntries.filter { query.isEmpty || $0.node.name.localizedCaseInsensitiveContains(query) || $0.node.kind.localizedCaseInsensitiveContains(query) || $0.node.server.localizedCaseInsensitiveContains(query) }
     }
+    var visibleEntries: [NodeEntry] { matchingEntries.filter { showExcluded || !preferences.excludes($0) } }
+    var testableEntries: [NodeEntry] { matchingEntries.filter { !preferences.excludes($0) } }
+    var excludedCount: Int { groupEntries.filter { preferences.excludes($0) }.count }
     var totalBytes: Int64 { vault.measurements.reduce(0) { $0 + $1.downloadedBytes } }
 
     @discardableResult
     func save() -> Bool {
         guard !vaultReadFailed else { return false }
-        do { try Vault.save(vault); return true }
+        do { try persist(vault); return true }
         catch { notice = "保存失败：\(error.localizedDescription)"; return false }
     }
 
@@ -105,6 +172,7 @@ final class AppModel: ObservableObject {
 
     func delete(_ subscription: Subscription) {
         guard !running, !importing, !vaultReadFailed else { return }
+        preferences.excludedNodes = preferences.excludedNodes.filter { !$0.hasPrefix(subscription.id.uuidString + "/") }
         vault.subscriptions.removeAll { $0.id == subscription.id }
         vault.measurements.removeAll { $0.subscriptionID == subscription.id }
         if selectedGroup == subscription.id { selectedGroup = nil }
@@ -113,14 +181,14 @@ final class AppModel: ObservableObject {
 
     func clearHistory() { guard !running else { return }; vault.measurements.removeAll(); save() }
 
-    func history(for entry: NodeEntry) -> [Measurement] {
-        vault.measurements.filter { $0.subscriptionID == entry.subscription.id && $0.nodeID == entry.node.id }.sorted { $0.date > $1.date }
+    func history(for entry: NodeEntry, allNetworks: Bool = false) -> [Measurement] {
+        vault.measurements.filter { $0.subscriptionID == entry.subscription.id && $0.nodeID == entry.node.id && (allNetworks || $0.networkProfileID == activeProfile?.id) }.sorted { $0.date > $1.date }
     }
 
     func ranked() -> [RankedNode] {
         let recentCutoff = Date().addingTimeInterval(-24 * 3600)
         let freshCutoff = Date().addingTimeInterval(-30 * 60)
-        let comparable = vault.measurements.filter { $0.network == network && $0.latencyURL == settings.latencyURL }
+        let comparable = vault.measurements.filter { activeProfile != nil && $0.networkProfileID == activeProfile?.id && $0.latencyURL == settings.latencyURL }
         let byEntry = Dictionary(grouping: comparable) { $0.subscriptionID.uuidString + "/" + $0.nodeID }
         var rows = visibleEntries.map { entry -> RankedNode in
             let history = (byEntry[entry.id] ?? []).sorted { $0.date > $1.date }
@@ -136,7 +204,7 @@ final class AppModel: ObservableObject {
                               fresh: (latest?.date ?? .distantPast) >= freshCutoff)
         }
         let eligible = rows.filter { row in
-            guard row.fresh, !pending.contains(row.id), let m = row.latest?.metrics else { return false }
+            guard !preferences.excludes(row.entry), row.fresh, !pending.contains(row.id), let m = row.latest?.metrics else { return false }
             return row.latest?.error == nil && m.attempts >= 6 && m.successes > 0 && m.failureRate <= 0.10
                 && m.jitterMS <= max(30, m.medianMS * 0.35)
                 && m.p95MS <= max(m.medianMS * 2, m.medianMS + 100)
@@ -178,26 +246,38 @@ final class AppModel: ObservableObject {
     }
 
     func start(entries requested: [NodeEntry]? = nil) {
+        guard vault.pausedBatch == nil else { notice = "请先继续或放弃未完成任务。"; return }
+        launch(entries: requested ?? testableEntries, snapshot: settings, batchID: UUID())
+    }
+
+    func resume() {
+        guard let checkpoint = vault.pausedBatch else { return }
+        guard checkpoint.profileID == activeProfile?.id else { notice = "请先切换到未完成任务对应的网络档案。"; return }
+        let ids = Set(checkpoint.remainingEntryIDs)
+        let entries = allEntries.filter { ids.contains($0.id) && !preferences.excludes($0) }
+        guard !entries.isEmpty else { discardPaused(); notice = "队列中的节点已被排除或删除。"; return }
+        launch(entries: entries, snapshot: checkpoint.settings, batchID: checkpoint.batchID)
+    }
+
+    func discardPaused() { guard !running else { return }; vault.pausedBatch = nil; save() }
+
+    private func launch(entries requested: [NodeEntry], snapshot: TestSettings, batchID: UUID) {
         guard !running, !importing, !vaultReadFailed else { return }
-        guard online else { notice = "当前没有可用网络"; return }
-        guard settings.valid else { notice = "请在设置中填写有效的 HTTPS 测试地址"; return }
-        if settings.downloadEnabled && settings.wifiOnly && !onWiFi { notice = "下载测速仅限 Wi-Fi，请连接 Wi-Fi 或在设置中关闭此限制"; return }
-        let entries = requested ?? visibleEntries
-        guard !entries.isEmpty else { return }
-        let snapshot = settings
-        let networkSnapshot = network
-        let batchID = UUID()
+        guard !appInBackground else { notice = "请回到前台后启动测速。"; return }
+        guard online, let profile = activeProfile else { notice = "当前没有可用网络或网络档案"; return }
+        guard snapshot.valid else { notice = "请在设置中填写有效的 HTTPS 测试地址"; return }
+        if snapshot.downloadEnabled && snapshot.wifiOnly && !onWiFi { notice = "下载测速仅限 Wi-Fi，请连接 Wi-Fi 或在设置中关闭此限制"; return }
+        let entries = requested.filter { !preferences.excludes($0) }
+        guard !entries.isEmpty else { notice = "没有可测试节点，请检查排除设置。"; return }
+        vault.pausedBatch = PausedBatch(batchID: batchID, profileID: profile.id, remainingEntryIDs: entries.map(\.id), settings: snapshot)
+        // Never start sockets if the durable queue could not be written.
+        guard save() else { return }
         let id = NSNewRun()
         runID = id; running = true; stopping = false; completed = 0; total = entries.count
         pending = Set(entries.map(\.id))
         UIApplication.shared.isIdleTimerDisabled = true
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish NodeScope probes") { [weak self] in
-            Task { @MainActor [weak self] in self?.stop() }
-        }
         batchTask = Task { [weak self] in
             guard let self else { return }
-            // A throughput test can saturate the path and bias other nodes'
-            // latency. Test entire nodes serially whenever downloading.
             let limit = snapshot.downloadEnabled ? 1 : min(max(snapshot.concurrency, 1), 6)
             var next = 0
             await withTaskGroup(of: (NodeEntry, ProbeResponse).self) { group in
@@ -213,20 +293,22 @@ final class AppModel: ObservableObject {
                 for _ in 0..<min(limit, entries.count) { add(entries[next]); next += 1 }
                 for await (entry, response) in group {
                     self.pending.remove(entry.id)
-                    self.completed += 1
-                    if response.cancelled != true {
+                    if response.cancelled != true && !self.stopping {
+                        self.completed += 1
                         let fallback = Metrics(attempts: 0, successes: 0, failureRate: 1, medianMS: 0, p95MS: 0, jitterMS: 0, score: 0, confidence: 0)
                         let measurement = Measurement(batchID: batchID, subscriptionID: entry.subscription.id, nodeID: entry.node.id,
-                            network: networkSnapshot, latencyURL: snapshot.latencyURL, metrics: response.metrics ?? fallback,
+                            network: profile.name, networkProfileID: profile.id, latencyURL: snapshot.latencyURL, metrics: response.metrics ?? fallback,
                             samples: response.samples ?? [], downloadMbps: response.downloadMbps,
                             downloadedBytes: response.downloadedBytes ?? 0, downloadError: response.downloadError, error: response.error)
                         self.vault.measurements.insert(measurement, at: 0)
-                        // Keep at most 30 records per node, with a global memory bound.
+                        // Preserve a separate history budget for each network/node pair.
                         let old = self.vault.measurements.indices.filter {
                             self.vault.measurements[$0].nodeID == entry.node.id && self.vault.measurements[$0].subscriptionID == entry.subscription.id
+                                && self.vault.measurements[$0].networkProfileID == profile.id
                         }.dropFirst(30)
                         for index in old.reversed() { self.vault.measurements.remove(at: index) }
                         if self.vault.measurements.count > 10_000 { self.vault.measurements = Array(self.vault.measurements.prefix(10_000)) }
+                        self.vault.pausedBatch?.remainingEntryIDs.removeAll { $0 == entry.id }
                         self.save()
                     }
                     if !self.stopping && next < entries.count { add(entries[next]); next += 1 }
@@ -234,16 +316,48 @@ final class AppModel: ObservableObject {
             }
             NSEndRun(id)
             self.runID = nil; self.running = false; self.stopping = false; self.pending = []
+            if self.vault.pausedBatch?.remainingEntryIDs.isEmpty == true { self.vault.pausedBatch = nil }
+            self.save()
             UIApplication.shared.isIdleTimerDisabled = false
-            if self.backgroundTask != .invalid { UIApplication.shared.endBackgroundTask(self.backgroundTask); self.backgroundTask = .invalid }
+            self.endBackgroundContinuation()
             self.batchTask = nil
         }
     }
 
     func stop() {
+        // User stops are final; only lifecycle/network pauses retain a resumable queue.
         guard let runID else { return }
-        stopping = true
-        NSCancelRun(runID)
+        vault.pausedBatch = nil; save()
+        stopping = true; NSCancelRun(runID)
+    }
+    func pause(reason: String) {
+        guard let runID else { return }
+        stopping = true; NSCancelRun(runID)
+        save(); notice = reason
+    }
+    func sceneChanged(_ phase: ScenePhase) {
+        if phase == .background {
+            appInBackground = true
+            guard running else { return }
+            if preferences.continueInBackground { beginBackgroundContinuation() }
+            else { pause(reason: "已保存未完成队列，回到前台可继续测速。") }
+        } else if phase == .active {
+            appInBackground = false
+            endBackgroundContinuation()
+        }
+    }
+    private func beginBackgroundContinuation() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish NodeScope probes") { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.pause(reason: "系统后台时间已到，未完成节点已保存。回到前台后可继续。")
+                self?.endBackgroundContinuation()
+            }
+        }
+        if backgroundTask == .invalid { pause(reason: "系统未分配后台时间，已保存未完成队列。") }
+    }
+    private func endBackgroundContinuation() {
+        if backgroundTask != .invalid { UIApplication.shared.endBackgroundTask(backgroundTask); backgroundTask = .invalid }
     }
 
     func exportCSV() -> URL? {
@@ -256,7 +370,7 @@ final class AppModel: ObservableObject {
         for row in ranked() {
             guard let record = row.latest else { continue }
             let fields = [row.entry.subscription.name, row.entry.node.name, row.entry.node.kind,
-                          ISO8601DateFormatter().string(from: record.date), record.network,
+                          ISO8601DateFormatter().string(from: record.date), networkName(for: record),
                           record.metrics.medianMS.oneDecimal, record.metrics.p95MS.oneDecimal,
                           record.metrics.jitterMS.oneDecimal, String(record.metrics.failureRate), row.score.oneDecimal,
                           record.downloadMbps?.oneDecimal ?? "", String(record.downloadedBytes)]
