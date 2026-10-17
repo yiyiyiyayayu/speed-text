@@ -1,0 +1,15 @@
+.DS_Store
+build/
+dist/
+ios/Frameworks/
+ios/Generated/
+ios/*.xcodeproj/
+ios/NodeScope/THIRD_PARTY_NOTICES.txt
+*.xcuserstate
+*.mobileprovision
+*.p12
+*.pem
+*.ipa
+.env
+.env.*
+subscriptions*
