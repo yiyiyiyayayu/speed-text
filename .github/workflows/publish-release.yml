@@ -6,11 +6,13 @@ on:
       build_run_id:
         description: Successful Build iOS IPA run ID
         required: true
-        default: '38999525204'
       tag:
-        description: Release tag
-        required: true
-        default: v1.0.0
+        description: Optional tag; must match the IPA version
+        required: false
+  workflow_run:
+    workflows: [Build iOS IPA]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -18,34 +20,63 @@ permissions:
 
 jobs:
   release:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id || github.event.workflow_run.id }}
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
       - name: Check successful source build
         run: |
           [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN_ID" > build-run.json
           python3 - <<'PY'
-          import json, os
+          import json, os, re
           run=json.load(open('build-run.json'))
           assert run['conclusion']=='success', 'Source build must pass'
           assert run['name']=='Build iOS IPA', 'Unexpected source workflow'
+          assert run['event'] in ('push','workflow_dispatch'), 'Untrusted event'
+          assert run['head_branch']=='main', 'Release source must be main'
           assert run['repository']['full_name']==os.environ['GH_REPO']
+          assert re.fullmatch('[0-9a-f]{40}',run['head_sha'])
           with open(os.environ['GITHUB_ENV'],'a') as f:
               f.write('RELEASE_SOURCE_SHA='+run['head_sha']+'\n')
           PY
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SOURCE_SHA }}
       - name: Download verified artifact
         run: |
           gh run download "$BUILD_RUN_ID" --name NodeScope-unsigned-IPA --dir dist
           cd dist
           sha256sum -c SHA256SUMS.txt
-      - name: Publish IPA and notices
+      - name: Validate IPA and derive version
         run: |
-          gh release create "$RELEASE_TAG" dist/NodeScope-unsigned.ipa dist/SHA256SUMS.txt dist/THIRD_PARTY_NOTICES.txt --target "$RELEASE_SOURCE_SHA" --title "NodeScope ${RELEASE_TAG#v} · 节点测速" --notes-file docs/RELEASE_v1.0.0.md
+          python3 - <<'PY'
+          import os, plistlib, re, struct, zipfile
+          with zipfile.ZipFile('dist/NodeScope-unsigned.ipa') as archive:
+              assert archive.testzip() is None, 'Corrupt IPA'
+              info=plistlib.loads(archive.read('Payload/NodeScope.app/Info.plist'))
+              assert info['CFBundleIdentifier']=='app.nodescope.speedtest'
+              executable=archive.read('Payload/NodeScope.app/'+info['CFBundleExecutable'])
+              assert struct.unpack_from('<II',executable)==(0xfeedfacf,0x100000c), 'Expected arm64 Mach-O'
+              version=info['CFBundleShortVersionString']
+          expected='v'+version
+          tag=os.environ.get('RELEASE_TAG') or expected
+          assert re.fullmatch(r'v\d+\.\d+\.\d+',tag), 'Invalid tag'
+          assert tag==expected, 'Tag must match the built IPA version'
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('RELEASE_TAG='+tag+'\n')
+          PY
+      - name: Publish new version
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "This version is already published; keeping its existing assets."
+            exit 0
+          fi
+          RELEASE_NOTES="docs/RELEASE_$RELEASE_TAG.md"
+          test -f "$RELEASE_NOTES"
+          gh release create "$RELEASE_TAG" dist/NodeScope-unsigned.ipa dist/SHA256SUMS.txt dist/THIRD_PARTY_NOTICES.txt --target "$RELEASE_SOURCE_SHA" --title "NodeScope ${RELEASE_TAG#v} · 节点测速" --notes-file "$RELEASE_NOTES"

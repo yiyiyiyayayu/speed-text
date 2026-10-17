@@ -75,7 +75,7 @@ struct AddSubscriptionView: View {
                             .accessibilityIdentifier("subscriptionContent")
                     }
                 } footer: {
-                    Text(remote ? "仅支持 HTTPS 订阅地址。支持 Clash YAML、Base64 订阅及常见节点分享链接。" : "可粘贴 Clash YAML 或一行一个的节点链接。远程 proxy-providers 不会自动加载。")
+                    Text(remote ? "仅支持 HTTPS 订阅地址。支持 Clash YAML、Base64 订阅及常见节点分享链接。" : "可粘贴 Clash YAML 或一行一个的节点链接。包含远程节点源的配置，请选择「订阅地址」导入。")
                 }
                 Section {
                     Text("支持 SS / SSR / VMess / VLESS / Trojan / Hysteria / Hysteria2 / TUIC 等协议。具体传输与加密组合以所用核心支持范围为准。")
