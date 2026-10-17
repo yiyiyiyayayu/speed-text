@@ -25,15 +25,28 @@ jobs:
         run: |
           bash scripts/build-core.sh iphonesimulator "$(uname -m)"
           python3 scripts/third-party-notices.py
-      - name: Generate UI test target and run
+      - name: Generate test project
         run: |
           python3 scripts/configure-ui-tests.py
           cd ios
           xcodegen generate
+      - name: Compile simulator tests
+        timeout-minutes: 12
+        working-directory: ios
+        run: xcodebuild build-for-testing -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ../build/UITestDerivedData CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Boot latest iOS simulator
+        timeout-minutes: 8
+        run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,re,sys; d=json.load(sys.stdin); candidates=[(tuple(map(int,re.findall(r"\d+",runtime))),x["udid"]) for runtime,group in d["devices"].items() if "iOS" in runtime for x in group if x["name"].startswith("iPhone")]; print(max(candidates,key=lambda x:x[0])[1])')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$DEVICE_ID" || true
-          xcodebuild test -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath ../build/UITests.xcresult -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 180 CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+      - name: Run iOS logic and UI tests
+        timeout-minutes: 10
+        working-directory: ios
+        run: xcodebuild test-without-building -project NodeScope.xcodeproj -scheme NodeScope -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE_ID" -destination-timeout 90 -derivedDataPath ../build/UITestDerivedData -resultBundlePath ../build/UITests.xcresult -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 300 CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Export screenshots
+        timeout-minutes: 2
         if: always()
         run: xcrun xcresulttool export attachments --path build/UITests.xcresult --output-path dist/ui-screenshots || true
       - uses: actions/upload-artifact@v4
