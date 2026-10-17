@@ -8,17 +8,18 @@ struct ExclusionsView: View {
         Form {
             Section {
                 ForEach(NodeRegion.all) { region in
-                    Toggle(isOn: Binding(get: { model.preferences.excludedRegions.contains(region.id) }, set: { excluded in
-                        if excluded { model.preferences.excludedRegions.insert(region.id) }
-                        else { model.preferences.excludedRegions.remove(region.id) }
-                    })) {
-                        HStack {
-                            Text(region.title)
-                            Spacer()
-                            Text("\(model.allEntries.filter { NodeRegion.matches(name: $0.node.name).contains { $0.id == region.id } }.count) 个")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.accessibilityIdentifier("excludeRegion_" + region.id)
+                    HStack {
+                        Text(region.title)
+                        Spacer()
+                        Text("\(model.allEntries.filter { NodeRegion.matches(name: $0.node.name).contains { $0.id == region.id } }.count) 个")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle(region.title, isOn: Binding(get: { model.preferences.excludedRegions.contains(region.id) }, set: { excluded in
+                            if excluded { model.preferences.excludedRegions.insert(region.id) }
+                            else { model.preferences.excludedRegions.remove(region.id) }
+                        }))
+                        .labelsHidden().fixedSize()
+                        .accessibilityIdentifier("excludeRegion_" + region.id)
+                    }
                 }
             } header: { Text("跳过地区 · 开启即排除") } footer: {
                 Text("按节点名称中的地区、旗帜和常见英文缩写匹配，不是 IP 地理定位。多地区或中转名称可能同时匹配；节点命名不准确时，可按节点或服务器精确排除。地区规则对所有订阅生效，并在更新订阅后继续生效。")
